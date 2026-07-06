@@ -1,0 +1,17 @@
+# Dependency directories
+node_modules/
+jspm_packages/
+
+# Compiled Rust binaries & build output
+target/
+dist/
+build/
+
+# Logs & Environment variables
+*.log
+.env
+.env.local
+
+# Operating system files
+.DS_Store
+Thumbs.db
