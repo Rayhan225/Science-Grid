@@ -1,57 +1,60 @@
 // pyodideWorker.js - Background thread for Python execution
 import { loadPyodide } from "https://cdn.jsdelivr.net/pyodide/v0.26.1/full/pyodide.mjs";
 
-let pyodide = null;
 
-// Initialize Pyodide engine
-async function initPyodide() {
-  if (!pyodide) {
-    self.postMessage({ type: "STATUS", payload: "Loading Python Environment..." });
-    pyodide = await loadPyodide();
-    // Pre-load standard data science packages if needed later
-    self.postMessage({ type: "STATUS", payload: "Ready" });
-  }
+let pyodide = null;
+let isInitializing = false;
+let initPromise = null;
+
+async function getPyodide() {
+  // If initialized, return immediately
+  if (pyodide) return pyodide;
+  
+  // If currently initializing, wait for the existing promise
+  if (initPromise) return initPromise;
+  
+  // Start initialization
+  initPromise = (async () => {
+    isInitializing = true;
+    const py = await loadPyodide({
+      indexURL: "https://cdn.jsdelivr.net/pyodide/v0.26.1/full/"
+    });
+    pyodide = py;
+    isInitializing = false;
+    return py;
+  })();
+  
+  return initPromise;
 }
 
-self.onmessage = async (event) => {
-  const { type, code, variables } = event.data;
-
-  if (type === "INIT") {
-    await initPyodide();
-    return;
-  }
-
+self.onmessage = async (e) => {
+  const { type, code, variables } = e.data;
+  
   if (type === "RUN") {
-    if (!pyodide) {
-      self.postMessage({ type: "ERROR", payload: "Python engine not initialized yet." });
-      return;
-    }
-
     try {
-      // Inject updated user variables from sliders into the Python scope
-      Object.keys(variables).forEach((key) => {
-        pyodide.globals.set(key, variables[key]);
-      });
-
-      // Redirect Python's standard print output to a string capture
-      pyodide.runPython(`
-import sys
-import io
-sys.stdout = io.StringIO()
-      `);
-
-      // Run the main computation script
-      await pyodide.runPythonAsync(code);
-
-      // Extract values back out out of stdout
-      const stdout = pyodide.runPython("sys.stdout.getvalue()");
+      const py = await getPyodide();
       
-      self.postMessage({
-        type: "RESULT",
-        payload: { stdout: stdout.trim() }
-      });
-    } catch (error) {
-      self.postMessage({ type: "ERROR", payload: error.message });
+      // Inject variables into Python namespace
+      for (const [key, value] of Object.entries(variables)) {
+        py.globals.set(key, value);
+      }
+      
+      // Redirect stdout to capture logs
+      py.runPython(`
+import sys
+from io import StringIO
+sys.stdout = StringIO()
+      `);
+      
+      // Execute the user code
+      py.runPython(code);
+      
+      // Capture the output
+      const output = py.runPython("sys.stdout.getvalue()");
+      
+      self.postMessage({ type: "RESULT", payload: { stdout: output } });
+    } catch (err) {
+      self.postMessage({ type: "ERROR", payload: err.message });
     }
   }
 };

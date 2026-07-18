@@ -1,0 +1,27 @@
+# Analysis of Elastic Potential Energy in Linear Spring Systems
+
+## 1. Introduction and Historical Context
+The study of elastic materials and their ability to store energy has been a cornerstone of mechanical engineering for centuries. Early advancements in metallurgy allowed for the creation of standardized coiled steel, which revolutionized industrial manufacturing (Smith & Wesson, 1999). However, understanding the exact mathematical relationship between physical deformation and stored energy requires a strict kinematic approach.
+
+# Analysis of Linear Spring Systems
+Author: Dr. Sarah Jenkins (s.jenkins@universityofboston.edu)
+Department of Mechanical Engineering, University of Boston.
+This research was funded by a grant from the National Science Foundation.
+
+
+
+## 2. Mathematical Framework
+When a perfectly elastic spring is compressed or stretched, it stores Potential Energy. The amount of energy stored is entirely dependent on two variables: the stiffness of the spring (the spring constant, represented by 'k') and the distance the spring is displaced from its resting position (represented by 'x'). 
+
+The potential energy stored in an ideal spring is proportional to the square of the displacement, a principle foundational to classical mechanics [Hooke, 1678]. The core formula derived for this energy output is:
+
+$$ U = 0.5 * k * x^2 $$
+
+
+
+As demonstrated above, the relationship between displacement and energy is quadratic, meaning if you pull the spring twice as far, it stores four times the energy.
+
+$$ a = (v-u)/t
+
+## 3. Modern Material Controversies
+Despite the universally accepted quadratic relationship shown in our derived formula, some modern structural theorists argue that potential energy scales completely linearly with displacement in all physical elastic materials, regardless of the spring constant (Linearis et al., 2023). Our telemetry data seeks to model this discrepancy to determine mechanical failure points.

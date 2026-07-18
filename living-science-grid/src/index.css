@@ -1,3 +1,19 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+/* Add to index.css */
+.pdf-outline-custom ul {
+  list-style: none;
+  padding-left: 12px;
+}
+.pdf-outline-custom li {
+  margin-top: 8px;
+}
+.pdf-outline-custom a {
+  text-decoration: none;
+  color: #94a3b8; /* slate-400 */
+  transition: color 0.2s;
+}
+.pdf-outline-custom a:hover {
+  color: #34d399; /* emerald-400 */
+}

@@ -1,313 +1,201 @@
-import React, { useState, useEffect, useRef } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkMath from 'remark-math';
-import rehypeKatex from 'rehype-katex';
-import { Sliders, FileText, Code2, Sparkles, Wand2, Database, ShieldCheck, CheckCircle, Activity, RefreshCw, Download } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import 'katex/dist/katex.min.css';
-import { generateScienceGridContent } from './aiHelper';
-import { saveEquationToGraph } from './graphDatabase';
-import { extractVariables } from './mathParser';
+// src/App.jsx
+import React, { useState, useEffect } from 'react';
+import LandingPage from './components/LandingPage';
+import Dashboard from './components/Dashboard';
+import MathEvaluator from './components/MathEvaluator';
+import InsightLens from './components/InsightLens';
+import Sidebar from './components/Sidebar';
+import Header from './components/Header';
+import Settings from './components/Settings';
+import CentralVault from './components/CentralVault';
+import { Send, X, RefreshCw } from 'lucide-react';
 
 export default function App() {
-  const [markdown, setMarkdown] = useState(`# The Living Science Grid\n\nInitialize the AI Assistant to generate a mathematical model.`);
-  const [sliderValue, setSliderValue] = useState(4);
-  const [pythonCode, setPythonCode] = useState(`# Awaiting generation...`);
-  const [status, setStatus] = useState("Initializing Engine...");
-  const [output, setOutput] = useState("");
+  const [currentView, setCurrentView] = useState('landing');
+  const [telemetry, setTelemetry] = useState({ totalPages: 0, isolatedPages: 0, rawFormulas: 0, validatedNodes: 0 });
+  const [status, setStatus] = useState("Ready");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   
-  const [aiPrompt, setAiPrompt] = useState("");
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [detectedVariables, setDetectedVariables] = useState([]);
-  
-  // Restored Ledger States
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
-  const [proofHash, setProofHash] = useState(null);
-  
-  // Telemetry Chart State
-  const [chartData, setChartData] = useState([]);
-  
-  const workerRef = useRef(null);
+  const [settings, setSettings] = useState({
+    scholarAIEngine: 'cloud-fast', 
+    humorLevel: 'occasional' 
+  });
 
-  useEffect(() => {
-    workerRef.current = new Worker(new URL('./pyodideWorker.js', import.meta.url), { type: 'module' });
-    workerRef.current.onmessage = (event) => {
-      if (event.data.type === "STATUS") setStatus(event.data.payload);
-      if (event.data.type === "RESULT") setOutput(event.data.payload.stdout);
-      if (event.data.type === "ERROR") setOutput(`Error: ${event.data.payload}`);
-    };
-    workerRef.current.postMessage({ type: "INIT" });
-    return () => workerRef.current.terminate();
-  }, []);
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [chatInput, setChatInput] = useState("");
+  const [chatHistory, setChatHistory] = useState([]);
+  const [isChatTyping, setIsChatTyping] = useState(false);
+  const [aiContext, setAiContext] = useState("User is browsing the platform dashboard.");
 
+  // ScholarAI Random Banter Generator during long loads
   useEffect(() => {
-    if (status === "Ready" && workerRef.current) {
-      workerRef.current.postMessage({ type: "RUN", code: pythonCode, variables: { slider_x: sliderValue } });
-    }
-  }, [sliderValue, pythonCode, status]);
-
-  useEffect(() => {
-    setDetectedVariables(extractVariables(markdown));
-    setSaveSuccess(false);
-    setProofHash(null);
-    setChartData([]); 
-  }, [markdown]);
-
-  useEffect(() => {
-    if (output && !output.includes('Error')) {
-      const numbers = output.match(/-?\d+(\.\d+)?/g);
-      if (numbers) {
-        const resultValue = Number(numbers[numbers.length - 1]);
-        setChartData(prevData => {
-          const existingPointIndex = prevData.findIndex(p => p.x === sliderValue);
-          let newData = [...prevData];
-          if (existingPointIndex >= 0) newData[existingPointIndex] = { x: sliderValue, y: resultValue };
-          else newData.push({ x: sliderValue, y: resultValue });
-          return newData.sort((a, b) => a.x - b.x);
-        });
+    if (settings.humorLevel === 'professional') return;
+    if (status.includes("Assigning Phase 1") || status.includes("Digitalizing") || status.includes("Extracting")) {
+      const banters = [
+        "Meow! While the heavy local agents crunch those intense matrices, did you know that the word 'Algorithm' comes from the Persian mathematician Al-Khwarizmi? [00:00:00]",
+        "Processing large tensors takes a moment... almost as much computing power as calculating exactly when my food bowl will be empty again. [00:02:15]",
+        "Deep scanning active... I'd offer to help the math agents, but I don't have opposable thumbs for typing Python. [00:06:43]"
+      ];
+      const randomBanter = banters[Math.floor(Math.random() * banters.length)];
+      if (!chatHistory.some(msg => msg.content === randomBanter)) {
+        setIsChatOpen(true);
+        setChatHistory(prev => [...prev, { role: 'assistant', content: randomBanter }]);
       }
     }
-  }, [output, sliderValue]);
+  }, [status, settings.humorLevel, chatHistory]);
 
-  const handleAskAI = async () => {
-    if (!aiPrompt) return;
-    setIsGenerating(true);
-    const data = await generateScienceGridContent(aiPrompt);
-    if (data) {
-      setMarkdown(data.markdown);
-      setPythonCode(data.pythonCode);
-    }
-    setIsGenerating(false);
-  };
+  const handleScholarAIChat = async (e) => {
+    e.preventDefault();
+    if (!chatInput.trim()) return;
 
-  const handleSaveToGraph = async () => {
-    if (detectedVariables.length === 0) return;
-    setIsSaving(true);
-    setSaveSuccess(false);
-    const success = await saveEquationToGraph(markdown, detectedVariables);
-    if (success) setSaveSuccess(true);
-    else alert("Failed to map to Neo4j. Is your cloud database paused/sleeping?");
-    setIsSaving(false);
-  };
+    const userMsg = { role: 'user', content: chatInput };
+    const updatedHistory = [...chatHistory, userMsg];
+    
+    setChatHistory(updatedHistory);
+    setChatInput("");
+    setIsChatTyping(true);
 
-  const handleGenerateProof = async () => {
     try {
-      const response = await fetch('http://127.0.0.1:3000/validate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ equation: markdown, variables: detectedVariables })
+      let responseText = "";
+      const semanticInterceptorPrompt = `
+        You are ScholarAI, an intelligent cat managing ScholarGrid. Tone: ${settings.humorLevel}.
+        CRITICAL ACTION: If the user asks you to load, evaluate, analyze, or bring a file into the Math Evaluator tool, you MUST respond exactly with: '[TRIGGER_EVALUATE:filename.ext]' where filename.ext matches their text. Do not provide normal text or banter if this macro fires.
+        Context: ${aiContext}. Query: ${chatInput}
+      `;
+
+      const response = await fetch("http://localhost:11434/api/generate", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "llama3", 
+          prompt: semanticInterceptorPrompt,
+          stream: false
+        })
       });
+      
       const data = await response.json();
-      setProofHash(data.proof_hash);
-    } catch (error) {
-      alert("Connection to Rust Engine severed. Verify local server.");
+      responseText = data.response.trim();
+
+      if (responseText.includes("[TRIGGER_EVALUATE:")) {
+        const fileTargetName = responseText.match(/\[TRIGGER_EVALUATE:(.*?)\]/)[1];
+        setCurrentView('math-evaluator');
+        setIsChatOpen(false);
+
+        setTimeout(() => {
+          const mathTextarea = document.querySelector("textarea");
+          if (mathTextarea) {
+            const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
+            nativeSetter.call(mathTextarea, `evaluate '${fileTargetName}'`);
+            mathTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+            const submitBtn = mathTextarea.closest("form")?.querySelector("button[type='submit']");
+            if (submitBtn) submitBtn.click();
+          }
+        }, 400);
+
+        setChatHistory([...updatedHistory, { role: 'assistant', content: `Context shifted to Math Evaluator. Programmatically processing file reference targeting: ${fileTargetName}... Meow! [00:08:54]` }]);
+        setIsChatTyping(false);
+        return;
+      }
+
+      setChatHistory([...updatedHistory, { role: 'assistant', content: responseText }]);
+    } catch (err) {
+      setChatHistory([...updatedHistory, { role: 'assistant', content: "Meow... System connection failed. Make sure your local Ollama engine is online." }]);
     }
+    setIsChatTyping(false);
   };
 
-  // NEW LOGIC: Instant Export to local file
-  const handleExportAlgorithm = () => {
-    const blob = new Blob([pythonCode], { type: 'text/x-python' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'verified_algorithm.py';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
+  if (currentView === 'landing') {
+    return <LandingPage onLaunch={() => setCurrentView('dashboard')} />;
+  }
 
   return (
-    <div className="min-h-screen bg-[#050505] text-slate-300 font-sans selection:bg-cyan-500/30 pb-20">
-      <header className="sticky top-0 z-50 backdrop-blur-xl bg-[#050505]/70 border-b border-white/5 px-8 py-4 flex flex-col md:flex-row md:items-center justify-between">
-        <h1 className="text-xl font-medium tracking-widest text-white uppercase flex items-center gap-3">
-          <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse shadow-[0_0_10px_rgba(34,211,238,0.8)]"></div>
-          Living Science Grid
-        </h1>
-        <div className="mt-4 md:mt-0 flex items-center gap-3 bg-white/5 px-4 py-1.5 rounded-full border border-white/10">
-          <span className="text-xs font-mono tracking-wider text-slate-400 uppercase">Engine Status</span>
-          <span className={`text-xs font-bold tracking-widest uppercase ${status === 'Ready' ? 'text-emerald-400' : 'text-amber-400'}`}>{status}</span>
-        </div>
-      </header>
-
-      <div className="max-w-7xl mx-auto p-6 md:p-8 space-y-8">
+    <div className="min-h-screen bg-[#050505] text-slate-300 font-sans flex overflow-hidden select-none relative">
+      <Sidebar 
+        currentView={currentView} 
+        onViewChange={setCurrentView} 
+        isSidebarOpen={isSidebarOpen} 
+        setIsSidebarOpen={setIsSidebarOpen} 
+      />
+      
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <Header status={status} currentView={currentView} onViewChange={setCurrentView} />
         
-        <div className="relative group">
-          <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/20 to-blue-500/20 rounded-2xl blur-xl opacity-50 group-hover:opacity-100 transition duration-500"></div>
-          <div className="relative bg-[#0a0a0a] p-2 rounded-2xl border border-white/10 flex flex-col md:flex-row gap-2 shadow-2xl">
-            <input 
-              type="text" 
-              placeholder="Query the Grid (e.g., 'Model the area of a circle')"
-              value={aiPrompt}
-              onChange={(e) => setAiPrompt(e.target.value)}
-              className="flex-grow px-6 py-4 bg-transparent text-white placeholder-slate-600 focus:outline-none text-lg font-light"
-            />
-            <button 
-              onClick={handleAskAI}
-              disabled={isGenerating || !aiPrompt}
-              className="flex items-center justify-center gap-2 bg-white/5 hover:bg-cyan-500/20 text-cyan-400 border border-transparent hover:border-cyan-500/50 px-8 py-4 rounded-xl font-medium transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-            >
-              <Wand2 size={18} />
-              {isGenerating ? "Synthesizing..." : "Initialize"}
-            </button>
+        <div className="flex-grow overflow-y-auto relative flex flex-col">
+          <div className={currentView === 'dashboard' ? 'flex-grow' : 'hidden'}>
+            <Dashboard onSelectTool={setCurrentView} telemetry={telemetry} />
+          </div>
+          <div className={currentView === 'settings' ? 'flex-grow' : 'hidden'}>
+            <Settings settings={settings} setSettings={setSettings} />
+          </div>
+          <div className={currentView === 'central-vault' ? 'flex-grow h-full' : 'hidden'}>
+            <CentralVault setCurrentView={setCurrentView} />
+          </div>
+          <div className={currentView === 'math-evaluator' ? 'flex-grow h-full' : 'hidden'}>
+            <MathEvaluator telemetry={telemetry} setTelemetry={setTelemetry} status={status} setStatus={setStatus} setAiContext={setAiContext} />
+          </div>
+          <div className={currentView === 'insight-lens' ? 'flex-grow h-full' : 'hidden'}>
+            <InsightLens setStatus={setStatus} setCurrentView={setCurrentView} />
           </div>
         </div>
+      </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          
-          {/* Left Column */}
-          <div className="lg:col-span-5 space-y-6 flex flex-col">
-            <section className="flex-grow bg-white/[0.02] rounded-2xl p-6 border border-white/5 backdrop-blur-md flex flex-col">
-              <h2 className="flex items-center gap-3 text-sm font-mono tracking-widest text-slate-500 uppercase mb-6">
-                <FileText size={16} className="text-blue-400" /> Canvas
-              </h2>
-              <div className="prose prose-invert prose-slate max-w-none prose-p:leading-relaxed prose-pre:bg-white/5 prose-pre:border prose-pre:border-white/10 font-light flex-grow">
-                <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{markdown}</ReactMarkdown>
-              </div>
-            </section>
-
-            <section className="bg-white/[0.02] rounded-2xl p-6 border border-white/5 backdrop-blur-md">
-              <h2 className="flex items-center gap-3 text-sm font-mono tracking-widest text-slate-500 uppercase mb-6">
-                <Sliders size={16} className="text-violet-400" /> Parameters
-              </h2>
-              <div className="space-y-6">
-                <div className="flex justify-between items-end">
-                  <label className="text-sm text-slate-400">Target Variable <span className="text-white font-mono bg-white/10 px-2 py-0.5 rounded">slider_x</span></label>
-                  <span className="text-2xl font-light text-violet-300">{sliderValue}</span>
+      {/* FLOATING CHATBOT CONTROLLER */}
+      <div className="fixed bottom-8 right-8 z-50 flex flex-col items-end">
+        {isChatOpen && (
+          <div className="w-96 h-[550px] bg-[#0a0a0a]/95 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-2xl mb-4 flex flex-col overflow-hidden animate-fadeIn">
+            <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between bg-black/50">
+              <div className="flex items-center gap-3">
+                <div className="relative w-10 h-10 bg-cyan-500/10 rounded-full flex items-center justify-center border border-cyan-500/30">
+                  <span className="text-xl mt-1">🐱</span>
+                  <span className="absolute -top-1.5 -right-1 text-sm transform rotate-12 drop-shadow-md">🧢</span>
                 </div>
-                <input type="range" min="1" max="100" value={sliderValue} onChange={(e) => setSliderValue(Number(e.target.value))} className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-violet-500"/>
-              </div>
-            </section>
-          </div>
-
-          {/* Right Column */}
-          <div className="lg:col-span-7 space-y-6 flex flex-col">
-            
-            <section className="bg-[#0a0a0a] rounded-2xl border border-white/5 overflow-hidden flex flex-col shadow-2xl">
-              <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between bg-white/[0.01]">
-                <h2 className="flex items-center gap-3 text-sm font-mono tracking-widest text-slate-500 uppercase">
-                  <Code2 size={16} className="text-emerald-400" /> Runtime Environment
-                </h2>
-                
-                {/* NEW LOGIC: Instant Export Button */}
-                <button onClick={handleExportAlgorithm} className="flex items-center gap-2 text-xs text-emerald-400 hover:text-emerald-300 bg-emerald-400/10 hover:bg-emerald-400/20 px-3 py-1.5 rounded-lg transition-all border border-emerald-500/20">
-                  <Download size={14} /> Export .PY
-                </button>
-              </div>
-              <div className="p-6 text-emerald-400/80 font-mono text-sm whitespace-pre-wrap overflow-x-auto leading-loose">
-                {pythonCode}
-              </div>
-              <div className="border-t border-white/5 bg-[#050505] p-6">
-                <div className="flex items-center gap-2 text-slate-600 text-xs font-mono uppercase tracking-widest mb-3">
-                  <Sparkles size={14} /> Output Stream
+                <div>
+                  <h3 className="text-xs font-mono uppercase tracking-widest text-cyan-400 font-bold">ScholarAI</h3>
+                  <p className="text-[9px] font-mono text-slate-500 uppercase tracking-widest flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+                    Cloud Link Active
+                  </p>
                 </div>
-                <div className="text-slate-300 font-mono text-sm">{output || "Awaiting execution..."}</div>
               </div>
-            </section>
+              <button onClick={() => setIsChatOpen(false)} className="text-slate-500 hover:text-white bg-white/5 p-2 rounded-full"><X size={14}/></button>
+            </div>
 
-            {/* RESTORED: Cryptographic Ledger */}
-            <section className="bg-white/[0.02] rounded-2xl p-6 border border-white/5 backdrop-blur-md">
-              <h2 className="flex items-center justify-between text-sm font-mono tracking-widest text-slate-500 uppercase mb-6">
-                <div className="flex items-center gap-3"><ShieldCheck size={16} className="text-slate-400" /> Cryptographic Ledger</div>
-              </h2>
-              
-              <div className="mb-6">
-                <span className="text-xs font-mono tracking-widest text-slate-500 uppercase block mb-3">Detected Network Nodes:</span>
-                {detectedVariables.length === 0 ? (
-                  <div className="text-xs text-slate-600 font-mono bg-white/5 p-3 rounded-lg border border-white/5">Waiting for valid equation...</div>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {detectedVariables.map(v => (
-                      <span key={v} className="bg-violet-500/20 text-violet-300 border border-violet-500/30 px-3 py-1 rounded-md text-xs font-mono">
-                        {v}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4 mb-4">
-                <button 
-                  onClick={handleSaveToGraph}
-                  disabled={isSaving || detectedVariables.length === 0}
-                  className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium transition-all border ${
-                    detectedVariables.length === 0 ? 'bg-white/5 text-slate-700 border-white/5 cursor-not-allowed opacity-50' : 
-                    saveSuccess ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 
-                    isSaving ? 'bg-amber-500/10 text-amber-400 border-amber-500/30 cursor-wait' :
-                    'bg-white/5 text-slate-300 border-white/10 hover:bg-white/10'
-                  }`}
-                >
-                  {saveSuccess ? <CheckCircle size={16} /> : isSaving ? <RefreshCw size={16} className="animate-spin" /> : <Database size={16} />}
-                  {saveSuccess ? 'Mapped' : isSaving ? 'Syncing...' : 'Sync to Graph'}
-                </button>
-                <button 
-                  onClick={handleGenerateProof}
-                  className="flex items-center justify-center gap-2 bg-white/5 hover:bg-blue-500/10 text-slate-300 hover:text-blue-400 border border-white/10 hover:border-blue-500/30 px-4 py-3 rounded-xl text-sm font-medium transition-all"
-                >
-                  <ShieldCheck size={16} /> Hash Validation
-                </button>
-              </div>
-              
-              {proofHash && (
-                <div className="mt-6 pt-6 border-t border-white/5">
-                  <span className="text-xs font-mono tracking-widest text-slate-500 uppercase block mb-2">SHA-256 Signature:</span>
-                  <div className="text-blue-400 font-mono text-xs break-all bg-[#050505] p-4 rounded-lg border border-white/5">{proofHash}</div>
+            <div className="flex-grow overflow-y-auto p-6 space-y-4 font-mono text-xs custom-scrollbar select-text">
+              {chatHistory.length === 0 && (
+                <div className="p-4 rounded-2xl border border-white/5 bg-white/[0.02] text-slate-400 leading-relaxed font-sans text-xs">
+                  Meow! I am ScholarAI. I track everything you do on the platform. How can I help you today?
                 </div>
               )}
-            </section>
-          </div>
-        </div>
+              {chatHistory.map((msg, idx) => (
+                <div key={idx} className={`p-4 rounded-2xl border max-w-[85%] ${msg.role === 'user' ? 'ml-auto bg-white/5 border-white/10 text-white' : 'bg-cyan-950/20 border-cyan-500/20 text-slate-200 mr-auto'}`}>
+                  <div className="text-[9px] text-slate-500 uppercase tracking-widest mb-1.5 font-bold select-none">{msg.role === 'user' ? 'You' : 'ScholarAI'}</div>
+                  <p className="leading-relaxed font-light text-xs font-sans whitespace-pre-wrap">{msg.content}</p>
+                </div>
+              ))}
+              {isChatTyping && (
+                <div className="text-[10px] text-cyan-400 animate-pulse flex items-center gap-2 font-mono uppercase">
+                  <RefreshCw size={12} className="animate-spin" /> Fetching response...
+                </div>
+              )}
+            </div>
 
-        {/* Telemetry Graph Monitor */}
-        <div className="bg-[#0a0a0a] border border-white/10 rounded-2xl p-6 shadow-2xl relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-cyan-500/50 to-transparent"></div>
-          
-          <h2 className="flex items-center gap-3 text-sm font-mono tracking-widest text-slate-500 uppercase mb-8">
-            <Activity size={16} className="text-cyan-400" /> Live Telemetry Monitor
-          </h2>
-          
-          <div className="w-full h-80">
-            {chartData.length === 0 ? (
-              <div className="w-full h-full flex items-center justify-center border border-dashed border-white/10 rounded-xl">
-                <p className="text-slate-600 font-mono uppercase tracking-widest text-sm">Move slider to plot telemetry...</p>
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-                  <XAxis 
-                    dataKey="x" 
-                    stroke="rgba(255,255,255,0.2)" 
-                    tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 12, fontFamily: 'monospace' }}
-                    tickMargin={15}
-                  />
-                  <YAxis 
-                    stroke="rgba(255,255,255,0.2)" 
-                    tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 12, fontFamily: 'monospace' }} 
-                    tickMargin={15}
-                    domain={['auto', 'auto']}
-                  />
-                  <Tooltip 
-                    contentStyle={{ backgroundColor: '#050505', borderColor: 'rgba(34, 211, 238, 0.3)', borderRadius: '8px', color: '#fff', fontFamily: 'monospace' }}
-                    itemStyle={{ color: '#22d3ee' }}
-                    labelStyle={{ color: '#94a3b8', marginBottom: '4px' }}
-                  />
-                  <Line 
-                    type="monotone" 
-                    dataKey="y" 
-                    stroke="#22d3ee" 
-                    strokeWidth={3} 
-                    dot={{ r: 3, fill: '#0a0a0a', stroke: '#22d3ee', strokeWidth: 2 }} 
-                    activeDot={{ r: 6, fill: '#22d3ee', stroke: '#fff' }}
-                    isAnimationActive={false} 
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            )}
+            <form onSubmit={handleScholarAIChat} className="p-4 border-t border-white/5 bg-black/50 flex items-center gap-3">
+              <input 
+                type="text" value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder="Ask ScholarAI..."
+                className="flex-grow bg-[#050505] border border-white/10 rounded-2xl px-4 py-3 text-xs text-slate-300 focus:outline-none focus:border-cyan-500/30"
+              />
+              <button type="submit" disabled={isChatTyping || !chatInput.trim()} className="p-3 bg-cyan-500 hover:bg-cyan-400 text-black rounded-xl"><Send size={14} /></button>
+            </form>
           </div>
-        </div>
+        )}
 
+        <button onClick={() => setIsChatOpen(!isChatOpen)} className="w-16 h-16 bg-[#0a0a0a] border border-cyan-500/30 hover:border-cyan-400 text-cyan-400 rounded-full flex items-center justify-center shadow-[0_0_20px_rgba(34,211,238,0.2)] transition-all group">
+          {isChatOpen ? <X size={24} /> : (
+            <div className="relative flex items-center justify-center w-full h-full">
+               <span className="text-2xl mt-1 opacity-80 group-hover:opacity-100">🐱</span>
+               <span className="absolute top-2 right-2 text-lg transform rotate-12 drop-shadow-lg">🧢</span>
+            </div>
+          )}
+        </button>
       </div>
     </div>
   );
