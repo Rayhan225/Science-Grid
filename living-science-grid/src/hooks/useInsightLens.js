@@ -1,8 +1,10 @@
-import { useState, useRef, useEffect } from 'react';
+// src/hooks/useInsightLens.js
+import { useState, useRef, useEffect, useCallback } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+pdfjsLib.GlobalWorkerOptions.workerSrc = `[https://unpkg.com/pdfjs-dist@$](https://unpkg.com/pdfjs-dist@$){pdfjsLib.version}/build/pdf.worker.min.mjs`;
 
+const BACKEND_URL = "[http://127.0.0.1:8000](http://127.0.0.1:8000)";
 const MAJOR_SECTIONS = /^(abstract|introduction|background|literature\s+review|methodology|methods|experimental\s+setup|results|discussion|conclusion|references)$/i;
 
 export function useInsightLens() {
@@ -17,23 +19,63 @@ export function useInsightLens() {
 
   const cancelRef = useRef(false);
 
-  useEffect(() => {
-    const fetchSavedSessions = async () => {
-      try {
-        const res = await fetch('http://localhost:5000/api/workspaces');
-        if (res.ok) setSessionHistory(await res.json());
-      } catch (err) {
-        console.warn("Unable to establish handshake with workspace ledger.");
+  const fetchSavedSessions = useCallback(async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/insightlens/workspaces`);
+      if (res.ok) {
+        const data = await res.json();
+        setSessionHistory(Array.isArray(data) ? data : []);
       }
-    };
-    fetchSavedSessions();
+    } catch (err) {
+      console.warn("Unable to fetch InsightLens workspaces from Supabase.");
+    }
   }, []);
 
-  const executeExtractionPipeline = async (file) => {
+  useEffect(() => {
+    fetchSavedSessions();
+  }, [fetchSavedSessions]);
+
+  const saveWorkspaceToDB = async (updatedWorkspace, currentChat, currentAnnotations) => {
+    if (!updatedWorkspace) return;
+    try {
+      await fetch(`${BACKEND_URL}/api/insightlens/workspaces`, {
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: updatedWorkspace.id,
+          title: updatedWorkspace.title,
+          fileId: updatedWorkspace.fileId,
+          totalPages: updatedWorkspace.totalPages || 1,
+          timestamp: updatedWorkspace.timestamp,
+          lastAccessed: new Date().toISOString(),
+          isPinned: updatedWorkspace.isPinned || false,
+          paperSummary: updatedWorkspace.paperSummary || "",
+          chatHistory: currentChat || [],
+          annotations: currentAnnotations || {},
+          metadata: updatedWorkspace.metadata || {},
+          stateData: updatedWorkspace.stateData || {}
+        })
+      });
+      fetchSavedSessions();
+    } catch (err) {
+      console.error("Failed to commit InsightLens workspace to Supabase:", err);
+    }
+  };
+
+  const resetWorkspaceState = () => {
+    setAnnotations({});
+    setRedoStack({});
+    setChatHistory([]);
+    setPaperData(null);
+    setStatus("Ready");
+  };
+
+  const executeExtractionPipeline = async (file, existingFileId = null) => {
     cancelRef.current = false;
+    resetWorkspaceState();
     setIsGenerating(true); 
     setPipelineProgress(5); 
-    setStatus("Parsing binary streams...");
+    setStatus("Parsing document structure...");
 
     try {
       const arrayBuffer = await file.arrayBuffer();
@@ -43,22 +85,29 @@ export function useInsightLens() {
       
       let synthesizedWorkspace = {
         id: newWorkspaceId, 
+        fileId: existingFileId,
         title: file.name,
+        totalPages: totalPages,
         timestamp: new Date().toLocaleDateString(), 
         lastAccessed: new Date().toLocaleTimeString(),
         isPinned: false, 
-        paperSummary: "Processing dynamic analysis...", 
+        paperSummary: "Processing manuscript...", 
         chatHistory: [],
-        metadata: { title: file.name, journal: "Extracted Matrix", authors: "Pending Verification", year: new Date().getFullYear().toString() },
-        totalPages: totalPages, 
+        metadata: { 
+          title: file.name, 
+          journal: "Scientific Reports", 
+          authors: "Extracted", 
+          year: new Date().getFullYear().toString() 
+        },
         stateData: { sections: [], paperMemory: {} }
       };
 
       setPaperData(synthesizedWorkspace);
+      await saveWorkspaceToDB(synthesizedWorkspace, [], {});
 
       for (let i = 1; i <= totalPages; i++) {
         if (cancelRef.current) break;
-        setStatus(`Indexing matrices: Page ${i}/${totalPages}`);
+        setStatus(`Indexing: Page ${i}/${totalPages}`);
         setPipelineProgress(Math.round((i / totalPages) * 100));
 
         const page = await pdf.getPage(i);
@@ -69,9 +118,9 @@ export function useInsightLens() {
         synthesizedWorkspace.stateData.paperMemory[i.toString()] = rawPageText;
 
         if (i === 1 && pageLines.length > 3) {
-            synthesizedWorkspace.metadata.title = pageLines[0].trim() || file.name;
-            const yearMatch = rawPageText.match(/\b(19|20\d{2})\b/);
-            if (yearMatch) synthesizedWorkspace.metadata.year = yearMatch[1];
+          synthesizedWorkspace.metadata.title = pageLines[0].trim() || file.name;
+          const yearMatch = rawPageText.match(/\b(19|20\d{2})\b/);
+          if (yearMatch) synthesizedWorkspace.metadata.year = yearMatch[1];
         }
 
         pageLines.forEach(line => {
@@ -81,17 +130,10 @@ export function useInsightLens() {
           }
         });
 
-        // Iterative step fallback matching
         setPaperData({ ...synthesizedWorkspace });
       }
 
-      // Final synchronization block commit to Supabase via Node API backend middleware
-      await fetch('http://localhost:5000/api/workspaces', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(synthesizedWorkspace)
-      });
-
-      setSessionHistory(prev => [synthesizedWorkspace, ...prev.filter(s => s.id !== newWorkspaceId)]);
+      await saveWorkspaceToDB(synthesizedWorkspace, [], {});
       setStatus("Ready"); 
       setIsGenerating(false);
     } catch (err) {
@@ -102,7 +144,11 @@ export function useInsightLens() {
   };
 
   const addAnnotationLine = (pageNum, lineObj) => {
-    setAnnotations(prev => ({ ...prev, [pageNum]: [...(prev[pageNum] || []), lineObj] }));
+    setAnnotations(prev => {
+      const updated = { ...prev, [pageNum]: [...(prev[pageNum] || []), lineObj] };
+      if (paperData) saveWorkspaceToDB(paperData, chatHistory, updated);
+      return updated;
+    });
     setRedoStack(prev => ({ ...prev, [pageNum]: [] }));
   };
 
@@ -111,7 +157,9 @@ export function useInsightLens() {
       const lines = prev[pageNum] || [];
       if (lines.length === 0) return prev;
       setRedoStack(rs => ({ ...rs, [pageNum]: [...(rs[pageNum] || []), lines[lines.length - 1]] }));
-      return { ...prev, [pageNum]: lines.slice(0, -1) };
+      const updated = { ...prev, [pageNum]: lines.slice(0, -1) };
+      if (paperData) saveWorkspaceToDB(paperData, chatHistory, updated);
+      return updated;
     });
   };
 
@@ -119,19 +167,71 @@ export function useInsightLens() {
     setRedoStack(prev => {
       const redos = prev[pageNum] || [];
       if (redos.length === 0) return prev;
-      setAnnotations(an => ({ ...an, [pageNum]: [...(an[pageNum] || []), redos[redos.length - 1]] }));
+      const restoredLine = redos[redos.length - 1];
+      setAnnotations(an => {
+        const updated = { ...an, [pageNum]: [...(an[pageNum] || []), restoredLine] };
+        if (paperData) saveWorkspaceToDB(paperData, chatHistory, updated);
+        return updated;
+      });
       return { ...prev, [pageNum]: redos.slice(0, -1) };
     });
   };
 
   const eraseAnnotations = (pageNum) => {
-    setAnnotations(prev => ({ ...prev, [pageNum]: [] }));
+    setAnnotations(prev => {
+      const updated = { ...prev, [pageNum]: [] };
+      if (paperData) saveWorkspaceToDB(paperData, chatHistory, updated);
+      return updated;
+    });
     setRedoStack(prev => ({ ...prev, [pageNum]: [] }));
+  };
+
+  const renameSession = async (id, newTitle) => {
+    try {
+      await fetch(`${BACKEND_URL}/api/insightlens/workspaces/${id}/rename`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: newTitle })
+      });
+      fetchSavedSessions();
+      if (paperData?.id === id) {
+        setPaperData(prev => ({ ...prev, title: newTitle }));
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const togglePinSession = async (id) => {
+    const target = sessionHistory.find(s => s.id === id);
+    if (!target) return;
+    const newStatus = !target.isPinned;
+    try {
+      await fetch(`${BACKEND_URL}/api/insightlens/workspaces/${id}/pin`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isPinned: newStatus })
+      });
+      fetchSavedSessions();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const deleteSession = async (id) => {
+    try {
+      await fetch(`${BACKEND_URL}/api/insightlens/workspaces/${id}`, { method: 'DELETE' });
+      fetchSavedSessions();
+      if (paperData?.id === id) resetWorkspaceState();
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   return {
     paperData, setPaperData, status, setStatus, isGenerating, pipelineProgress,
     sessionHistory, chatHistory, setChatHistory, executeExtractionPipeline,
-    annotations, addAnnotationLine, undoAnnotation, redoAnnotation, eraseAnnotations
+    annotations, setAnnotations, addAnnotationLine, undoAnnotation, redoAnnotation, eraseAnnotations,
+    saveWorkspaceToDB, resetWorkspaceState, renameSession, togglePinSession, deleteSession, fetchSavedSessions
   };
 }

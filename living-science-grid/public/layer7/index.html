@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ScholarGrid — Developer Tools</title>
+  <link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-mark">S</div>
+        <div>
+          <div class="brand-name">ScholarGrid</div>
+          <div class="brand-sub">Research workspace</div>
+        </div>
+      </div>
+
+      <div class="layer-label">LAYER 7</div>
+
+      <nav class="side-nav">
+        <button class="nav-item active" data-page="overview"><span>▦</span> Overview</button>
+        <button class="nav-item" data-page="api"><span>⌁</span> API Endpoint Notebook</button>
+        <button class="nav-item" data-page="github"><span>⑂</span> Git Code Linker</button>
+        <button class="nav-item" data-page="diff"><span>⇄</span> Manuscript Diff</button>
+        <button class="nav-item" data-page="citation"><span>▤</span> Citation Validator</button>
+        <button class="nav-item" data-page="compliance"><span>✓</span> Compliance Check</button>
+        <button class="nav-item" data-page="logs"><span>≡</span> API Logs</button>
+        <button class="nav-item" data-page="settings"><span>⚙</span> Settings</button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="mini-status">
+          <span class="status-dot"></span>
+          <span>Demo mode</span>
+          <button id="backendToggle" title="Toggle backend mode">●</button>
+        </div>
+        <div class="user-card">
+          <div class="avatar">JD</div>
+          <div><strong>Researcher</strong><small>Developer Tools</small></div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="top-left">
+          <button class="icon-btn mobile-menu" id="mobileMenu">☰</button>
+          <div class="breadcrumb"><span>Layer 7</span><b>/</b><span>Developer Tools</span></div>
+          <h1 id="pageTitle">Developer Tools &amp; Algorithmic Integration</h1>
+          <p id="pageSubtitle">Research meets executable code.</p>
+        </div>
+        <div class="top-right">
+          <div class="search-box"><span>⌕</span><input id="globalSearch" placeholder="Search..." /></div>
+          <button class="icon-btn" id="helpBtn">?</button>
+          <button class="icon-btn" id="notifyBtn">♧<i></i></button>
+          <div class="top-avatar">JD</div>
+        </div>
+      </header>
+
+      <section class="content">
+        <!-- OVERVIEW -->
+        <div class="page active" id="page-overview">
+          <div class="stats-grid">
+            <article class="stat-card"><div class="stat-head"><span>Active API Nodes</span><span class="stat-icon blue">⌁</span></div><strong id="statApi">12</strong><small class="trend">↑ 3 this week</small></article>
+            <article class="stat-card"><div class="stat-head"><span>Git Code Links</span><span class="stat-icon violet">⑂</span></div><strong id="statLinks">38</strong><small class="trend">↑ 7 this week</small></article>
+            <article class="stat-card"><div class="stat-head"><span>Manuscript Versions</span><span class="stat-icon cyan">▤</span></div><strong id="statVersions">24</strong><small class="muted">2 active diffs</small></article>
+            <article class="stat-card warning"><div class="stat-head"><span>Citation Issues</span><span class="stat-icon orange">!</span></div><strong id="statIssues">7</strong><small class="muted">3 unresolved</small></article>
+            <article class="stat-card success"><div class="stat-head"><span>Compliance Score</span><span class="stat-icon green">✓</span></div><strong id="statCompliance">94%</strong><small class="trend">↑ 2% since last run</small></article>
+          </div>
+
+          <div class="section-grid">
+            <section class="card activity-card">
+              <div class="card-title-row"><div><h2>Recent Activity</h2><p>Latest Layer 7 events</p></div><button class="link-btn" data-page-link="logs">View all</button></div>
+              <div class="activity-list" id="activityList"></div>
+            </section>
+
+            <section class="card quick-card">
+              <div class="card-title-row"><div><h2>Quick Actions</h2><p>Common developer workflows</p></div></div>
+              <div class="quick-list">
+                <button class="quick-action" data-page-link="api"><span class="qa-icon blue">+</span><div><strong>Create API Node</strong><small>Turn a formula into an executable endpoint</small></div><b>›</b></button>
+                <button class="quick-action" data-page-link="github"><span class="qa-icon violet">⑂</span><div><strong>Link Repository</strong><small>Connect paper sections to GitHub code</small></div><b>›</b></button>
+                <button class="quick-action" data-page-link="diff"><span class="qa-icon cyan">⇄</span><div><strong>Compare Manuscripts</strong><small>Review changes between versions</small></div><b>›</b></button>
+                <button class="quick-action" data-page-link="citation"><span class="qa-icon orange">✓</span><div><strong>Validate Citations</strong><small>Check references and missing DOIs</small></div><b>›</b></button>
+                <button class="quick-action" data-page-link="compliance"><span class="qa-icon green">✓</span><div><strong>Run Compliance Check</strong><small>Prepare the manuscript for submission</small></div><b>›</b></button>
+              </div>
+            </section>
+          </div>
+
+          <section class="card chart-card">
+            <div class="card-title-row"><div><h2>API Execution Volume</h2><p>Successful executions across your algorithmic nodes</p></div><select id="chartRange"><option>Last 14 days</option><option>Last 30 days</option></select></div>
+            <div class="chart-wrap"><canvas id="executionChart"></canvas></div>
+          </section>
+        </div>
+
+        <!-- API -->
+        <div class="page" id="page-api">
+          <div class="page-heading"><span class="eyebrow">ALGORITHMIC INTEGRATION</span><h2>API Endpoint Notebook</h2><p>Create, test and save executable algorithm nodes. This page works in demo mode without a backend.</p></div>
+          <div class="two-col">
+            <section class="card">
+              <div class="card-title-row"><div><h2>Node Definition</h2><p>Define an endpoint and its formula</p></div><span class="pill blue-pill">POST</span></div>
+              <label>Node name<input id="nodeName" value="quadratic-root"></label>
+              <label>Formula<textarea id="nodeFormula">x = (-b + sqrt(b^2 - 4*a*c)) / (2*a)</textarea></label>
+              <label>Endpoint path<input id="nodePath" value="/api/v1/nodes/quadratic-root/execute"></label>
+              <div class="form-row"><label>Method<select id="nodeMethod"><option>POST</option><option>GET</option></select></label><label>Status<select id="nodeStatus"><option>Active</option><option>Draft</option></select></label></div>
+              <button class="primary-btn" id="saveNode">Save API Node</button>
+              <div class="inline-message" id="nodeMessage"></div>
+            </section>
+            <section class="card">
+              <div class="card-title-row"><div><h2>Test Request</h2><p>Run a local demo execution</p></div><span class="pill green-pill">LIVE DEMO</span></div>
+              <label>JSON input<textarea class="code-area" id="apiInput">{
+  "a": 1,
+  "b": -5,
+  "c": 6
+}</textarea></label>
+              <button class="secondary-btn" id="runNode">▶ Run endpoint</button>
+              <label>Response<pre class="response-box" id="apiOutput">Ready.</pre></label>
+            </section>
+          </div>
+          <section class="card table-card">
+            <div class="card-title-row"><div><h2>API Nodes</h2><p>Saved nodes in this browser</p></div><button class="secondary-btn small" id="clearNodes">Clear demo nodes</button></div>
+            <div class="table-scroll"><table><thead><tr><th>Node</th><th>Method</th><th>Path</th><th>Status</th><th>Updated</th></tr></thead><tbody id="nodesTable"></tbody></table></div>
+          </section>
+        </div>
+
+        <!-- GITHUB -->
+        <div class="page" id="page-github">
+          <div class="page-heading"><span class="eyebrow">SOURCE TRACEABILITY</span><h2>Git Code Linker</h2><p>Link a manuscript section to a repository, file and exact code range.</p></div>
+          <div class="two-col">
+            <section class="card">
+              <div class="card-title-row"><div><h2>Repository</h2><p>Demo data is stored locally</p></div><span class="pill violet-pill">GITHUB</span></div>
+              <label>Repository URL<input id="repoUrl" value="https://github.com/scholargrid/research-engine"></label>
+              <div class="form-row"><label>Branch<input id="repoBranch" value="main"></label><label>Commit<input id="repoCommit" value="8f2d91a"></label></div>
+              <label>File path<input id="repoFile" value="src/models/attention.py"></label>
+              <div class="form-row"><label>Start line<input id="lineStart" type="number" value="42"></label><label>End line<input id="lineEnd" type="number" value="67"></label></div>
+              <button class="primary-btn" id="saveRepoLink">Save Code Link</button>
+              <div class="inline-message" id="repoMessage"></div>
+            </section>
+            <section class="card">
+              <div class="card-title-row"><div><h2>Manuscript Anchor</h2><p>What does this code implement?</p></div></div>
+              <label>Document<select id="docSelect"><option>Attention Mechanism Manuscript</option><option>Research Engine v2</option></select></label>
+              <div class="form-row"><label>Section<input id="docSection" value="3.2 Attention Score"></label><label>Page<input id="docPage" value="8"></label></div>
+              <label>Relationship<select id="linkType"><option>implements</option><option>supports</option><option>reproduces</option><option>tests</option></select></label>
+              <div class="trace-preview"><div><small>MANUSCRIPT</small><strong id="traceDoc">Section 3.2 · p.8</strong></div><span>→</span><div><small>CODE</small><strong id="traceCode">attention.py · 42–67</strong></div></div>
+            </section>
+          </div>
+          <section class="card table-card"><div class="card-title-row"><div><h2>Code Links</h2><p>Auditable manuscript-to-code relationships</p></div></div><div class="table-scroll"><table><thead><tr><th>Section</th><th>Repository</th><th>File</th><th>Lines</th><th>Relationship</th></tr></thead><tbody id="linksTable"></tbody></table></div></section>
+        </div>
+
+        <!-- DIFF -->
+        <div class="page" id="page-diff">
+          <div class="page-heading"><span class="eyebrow">MANUSCRIPT ANALYSIS</span><h2>Manuscript Diff</h2><p>Compare two text versions and inspect additions, removals and unchanged content.</p></div>
+          <section class="card">
+            <div class="two-col">
+              <label>Version A<textarea class="diff-input" id="diffA">The proposed model improves retrieval accuracy.
+The algorithm uses a graph representation.
+Experiments were conducted on three datasets.</textarea></label>
+              <label>Version B<textarea class="diff-input" id="diffB">The proposed model improves retrieval accuracy by 8%.
+The algorithm uses a graph representation.
+Experiments were conducted on five datasets.
+Ablation results are included.</textarea></label>
+            </div>
+            <button class="primary-btn" id="runDiff">Compare versions</button>
+            <div class="diff-summary" id="diffSummary"></div>
+            <div class="diff-output" id="diffOutput"></div>
+          </section>
+        </div>
+
+        <!-- CITATION -->
+        <div class="page" id="page-citation">
+          <div class="page-heading"><span class="eyebrow">REFERENCE QUALITY</span><h2>Citation Validator</h2><p>Paste citation keys and bibliography entries to find missing or unresolved references.</p></div>
+          <div class="two-col">
+            <section class="card">
+              <label>Citation keys in manuscript<textarea id="citationKeys">@smith2024
+@lee2023
+@doe2022
+@missing2025</textarea></label>
+              <label>Bibliography keys<textarea id="bibKeys">@smith2024
+@lee2023
+@doe2022</textarea></label>
+              <button class="primary-btn" id="validateCitations">Validate citations</button>
+            </section>
+            <section class="card">
+              <div class="validation-overview"><div><span>Total</span><strong id="citTotal">4</strong></div><div class="ok"><span>Valid</span><strong id="citValid">3</strong></div><div class="bad"><span>Missing</span><strong id="citMissing">1</strong></div></div>
+              <div id="citationResult" class="validation-list"></div>
+            </section>
+          </div>
+        </div>
+
+        <!-- COMPLIANCE -->
+        <div class="page" id="page-compliance">
+          <div class="page-heading"><span class="eyebrow">PUBLICATION READINESS</span><h2>Compliance Check</h2><p>Run a local pre-flight check against common manuscript requirements.</p></div>
+          <section class="card">
+            <div class="compliance-head"><div><div class="score" id="complianceScore">94%</div><p>Submission readiness</p></div><button class="primary-btn" id="runCompliance">Run compliance check</button></div>
+            <div class="progress"><span id="complianceBar"></span></div>
+            <div class="checks" id="checks"></div>
+          </section>
+        </div>
+
+        <!-- LOGS -->
+        <div class="page" id="page-logs">
+          <div class="page-heading"><span class="eyebrow">OBSERVABILITY</span><h2>API Logs</h2><p>Frontend demo logs. Backend logs can replace these later.</p></div>
+          <section class="card table-card"><div class="card-title-row"><div><h2>Request history</h2><p id="logCount">0 events</p></div><button class="secondary-btn small" id="clearLogs">Clear logs</button></div><div class="table-scroll"><table><thead><tr><th>Time</th><th>Method</th><th>Endpoint</th><th>Status</th><th>Latency</th></tr></thead><tbody id="logsTable"></tbody></table></div></section>
+        </div>
+
+        <!-- SETTINGS -->
+        <div class="page" id="page-settings">
+          <div class="page-heading"><span class="eyebrow">WORKSPACE</span><h2>Settings</h2><p>Local demo preferences. No account or database changes are made.</p></div>
+          <section class="card settings-card">
+            <label class="toggle-row"><div><strong>Demo mode</strong><small>When enabled, the UI uses browser-local demo data. Turn it off to use your FastAPI backend.</small></div><input type="checkbox" id="demoMode" checked><span class="toggle"></span></label>
+            <label class="toggle-row"><div><strong>Activity notifications</strong><small>Show a notification dot for new local events.</small></div><input type="checkbox" id="notifications" checked><span class="toggle"></span></label>
+            <label>Backend URL<input id="backendUrl" value="http://127.0.0.1:8000"></label>
+            <div class="backend-status" id="backendStatus"><span class="status-dot"></span> Checking backend...</div>
+            <div class="auth-box">
+              <div class="card-title-row"><div><h2>FastAPI Login</h2><p>Your backend protects API Nodes and Git write operations with JWT.</p></div><span class="pill blue-pill" id="authState">SIGNED OUT</span></div>
+              <div class="form-row"><label>Email<input id="loginEmail" type="email" placeholder="researcher@example.com"></label><label>Password<input id="loginPassword" type="password" placeholder="••••••••"></label></div>
+              <div class="form-row"><button class="secondary-btn" id="registerBtn">Create account</button><button class="primary-btn" id="loginBtn">Login</button></div>
+              <div class="inline-message" id="authMessage"></div>
+            </div>
+            <button class="primary-btn" id="saveSettings">Save settings</button>
+            <button class="secondary-btn" id="logoutBtn" style="margin-top:8px">Logout</button>
+            <div class="inline-message" id="settingsMessage"></div>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <script src="./js/app.js"></script>
+</body>
+</html>

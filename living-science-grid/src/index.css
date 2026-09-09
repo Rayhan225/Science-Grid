@@ -1,7 +1,7 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-/* Add to index.css */
+
 .pdf-outline-custom ul {
   list-style: none;
   padding-left: 12px;
@@ -11,9 +11,26 @@
 }
 .pdf-outline-custom a {
   text-decoration: none;
-  color: #94a3b8; /* slate-400 */
+  color: #94a3b8;
   transition: color 0.2s;
 }
 .pdf-outline-custom a:hover {
-  color: #34d399; /* emerald-400 */
+  color: #34d399;
+}
+
+/* Custom Sleek Scrollbars */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 9999px;
+  transition: background 0.2s;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
 }

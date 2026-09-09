@@ -1,9 +1,11 @@
-import { useState, useEffect, useRef } from 'react';
+// src/hooks/useMathEvaluator.js
+import { useState, useEffect, useRef, useCallback } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { generatePaperSummary, extractRawEquations, analyzeSingleEquation, sanitizeDocument } from '../aiHelper';
 
-// Initialize PDF.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+pdfjsLib.GlobalWorkerOptions.workerSrc = `[https://unpkg.com/pdfjs-dist@$](https://unpkg.com/pdfjs-dist@$){pdfjsLib.version}/build/pdf.worker.min.mjs`;
+
+const BACKEND_URL = "[http://127.0.0.1:8000](http://127.0.0.1:8000)";
 
 export function useMathEvaluator(isBlindMode) {
   const [paperData, setPaperData] = useState(null);
@@ -23,12 +25,26 @@ export function useMathEvaluator(isBlindMode) {
   const cancelRef = useRef(false);
   const stateRef = useRef({ activeEqId, paperData, sliderValues });
 
-  // Sync state for WebWorker closures
   useEffect(() => {
     stateRef.current = { activeEqId, paperData, sliderValues };
   }, [activeEqId, paperData, sliderValues]);
 
-  // Real-time ETA Countdown
+  const fetchDatabaseSessions = useCallback(async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/math-evaluator/sessions`);
+      if (res.ok) {
+        const data = await res.json();
+        setSessionHistory(Array.isArray(data) ? data : []);
+      }
+    } catch (err) {
+      console.warn("Unable to fetch MathEvaluator sessions from Supabase.");
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchDatabaseSessions();
+  }, [fetchDatabaseSessions]);
+
   useEffect(() => {
     let interval;
     if (isGenerating && pipelineEta > 0) {
@@ -39,7 +55,6 @@ export function useMathEvaluator(isBlindMode) {
     return () => clearInterval(interval);
   }, [isGenerating, pipelineEta]);
 
-  // Persistent WebAssembly Worker
   useEffect(() => {
     workerRef.current = new Worker(new URL('../pyodideWorker.js', import.meta.url), { type: 'module' });
     workerRef.current.onmessage = (event) => {
@@ -49,7 +64,9 @@ export function useMathEvaluator(isBlindMode) {
 
       if (event.data.type === "RESULT") {
         const resultText = event.data.payload.stdout;
-        setOutputLogs(prev => ({ ...prev, [currentActiveId]: resultText }));
+        const updatedLogs = { ...outputLogs, [currentActiveId]: resultText };
+        setOutputLogs(updatedLogs);
+
         const numbers = resultText.match(/-?\d+(\.\d+)?/g);
         if (numbers && currentPaperData) {
           const resultValue = Number(numbers[numbers.length - 1]);
@@ -60,7 +77,9 @@ export function useMathEvaluator(isBlindMode) {
             setChartData(prev => {
               const eqData = prev[currentActiveId] || [];
               const newData = [...eqData.filter(p => p.x !== xValue), { x: xValue, true_y: resultValue }];
-              return { ...prev, [currentActiveId]: newData.sort((a, b) => a.x - b.x) };
+              const updatedChart = { ...prev, [currentActiveId]: newData.sort((a, b) => a.x - b.x) };
+              saveWorkspaceToDB(currentPaperData, currentSliderVals, updatedLogs, updatedChart);
+              return updatedChart;
             });
           }
         }
@@ -72,11 +91,11 @@ export function useMathEvaluator(isBlindMode) {
       }
     };
     return () => { if (workerRef.current) workerRef.current.terminate(); };
-  }, []);
+  }, [outputLogs]);
 
   const extractPagesFromDocument = async (file) => {
     let pages = [];
-    if (file.type === "application/pdf") {
+    if (file.type === "application/pdf" || file.name.endsWith('.pdf')) {
       const arrayBuffer = await file.arrayBuffer();
       const data = new Uint8Array(arrayBuffer);
       const pdf = await pdfjsLib.getDocument({ data }).promise;
@@ -93,21 +112,10 @@ export function useMathEvaluator(isBlindMode) {
     return pages;
   };
 
-  const updateHistoryState = (updatedWorkspace) => {
-    setSessionHistory(prev => {
-      const idx = prev.findIndex(s => s.id === updatedWorkspace.id);
-      if (idx >= 0) {
-        const newHist = [...prev];
-        newHist[idx] = { ...updatedWorkspace, lastAccessed: new Date().toLocaleTimeString() };
-        return newHist;
-      }
-      return [{ ...updatedWorkspace, isPinned: false, lastAccessed: new Date().toLocaleTimeString() }, ...prev];
-    });
-  };
-
   const saveWorkspaceToDB = async (sessionData, currentSliderVals, currentOutputLogs, currentChartData) => {
+    if (!sessionData) return;
     try {
-      await fetch('http://localhost:5000/api/workspaces', {
+      await fetch(`${BACKEND_URL}/api/math-evaluator/sessions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -116,37 +124,31 @@ export function useMathEvaluator(isBlindMode) {
           timestamp: sessionData.timestamp,
           lastAccessed: new Date().toISOString(),
           isPinned: sessionData.isPinned || false,
-          paperSummary: sessionData.paperSummary,
-          chatHistory: sessionData.chatHistory, 
-          stateData: { 
-            equations: sessionData.equations,
-            sliderValues: currentSliderVals || {},
-            outputLogs: currentOutputLogs || {},
-            chartData: currentChartData || {}
-          }
+          equations: sessionData.equations || [],
+          sliderValues: currentSliderVals || {},
+          outputLogs: currentOutputLogs || {},
+          chartData: currentChartData || {}
         })
       });
-    } catch (err) { console.error("Database Sync Failed:", err); }
+      fetchDatabaseSessions();
+    } catch (err) { 
+      console.error("Database Sync Failed:", err); 
+    }
   };
 
   const restoreSession = async (sessionRecord) => {
     if (isGenerating) cancelRef.current = true;
-    
     setPaperData(sessionRecord);
     setActiveEqId(sessionRecord.equations?.[0]?.id || null);
-    setStatus("Workspace Restored.");
-    
-    if (sessionRecord.stateData) {
-      setSliderValues(sessionRecord.stateData.sliderValues || {});
-      setOutputLogs(sessionRecord.stateData.outputLogs || {});
-      setChartData(sessionRecord.stateData.chartData || {});
-    }
-
-    updateHistoryState(sessionRecord);
+    setStatus("Session Restored.");
+    setSliderValues(sessionRecord.sliderValues || {});
+    setOutputLogs(sessionRecord.outputLogs || {});
+    setChartData(sessionRecord.chartData || {});
   };
 
   const handleCloseWorkspace = () => {
-    setPaperData(null); setActiveEqId(null);
+    setPaperData(null); 
+    setActiveEqId(null);
     setTelemetry({ totalPages: 0, isolatedPages: 0, rawFormulas: 0, validatedNodes: 0 });
     setStatus("Ready");
     setIsGenerating(false);
@@ -156,162 +158,136 @@ export function useMathEvaluator(isBlindMode) {
   const handleTerminateProcess = () => {
     cancelRef.current = true;
     setIsGenerating(false);
-    setStatus("Process Suspended. Kept in ledger.");
+    setStatus("Process Suspended.");
     setPipelineProgress(0);
     setPipelineEta(0);
-    
-    setPaperData(current => {
-      if (!current) return null;
-      
-      // Stop all currently pending equations and flip them to paused.
-      let pausedEqs = current.equations.map(e => e.status !== 'complete' ? { ...e, status: 'paused' } : e);
-      
-      // If user suspended before any equations were mapped, we create a fallback stub so the session lives on in history
-      if (pausedEqs.length === 0) {
-        pausedEqs.push({
-          id: `stub_${Date.now()}`,
-          name: 'Pending Pipeline Sync',
-          latex: '\\text{Process interrupted. Click resume to compile.}',
-          status: 'paused',
-          sourceText: current.rawText || 'Pending document mapping...'
-        });
-      }
-
-      const updated = { ...current, equations: pausedEqs };
-      updateHistoryState(updated);
-      return updated;
-    });
   };
 
   const executePipeline = async (allPages, skipRadar = false, workspaceTitle = "Untitled Matrix") => {
     cancelRef.current = false;
     setIsGenerating(true);
     setPipelineProgress(5);
-    setStatus(skipRadar ? "Processing Manual Input..." : "Parsing Document...");
+    setStatus(skipRadar ? "Processing Input..." : "Parsing Document...");
     setTelemetry({ totalPages: allPages.length, isolatedPages: 0, rawFormulas: 0, validatedNodes: 0 });
 
     try {
-      const newWorkspaceId = `workspace_${Date.now()}`;
+      const newSessionId = `math_session_${Date.now()}`;
       const introText = (allPages[0]?.text || "") + " " + (allPages[1]?.text || "");
       
-      let activeWorkspace = {
-        id: newWorkspaceId, title: workspaceTitle, timestamp: new Date().toLocaleDateString(),
-        lastAccessed: new Date().toLocaleTimeString(), isPinned: false, paperSummary: "Analyzing document context...", 
-        equations: [], rawText: introText
+      let activeSession = {
+        id: newSessionId, 
+        title: workspaceTitle, 
+        timestamp: new Date().toLocaleDateString(),
+        lastAccessed: new Date().toLocaleTimeString(), 
+        isPinned: false, 
+        equations: []
       };
       
-      setPaperData(activeWorkspace);
-      updateHistoryState(activeWorkspace);
+      setPaperData(activeSession);
+      await saveWorkspaceToDB(activeSession, {}, {}, {});
 
       const summaryPromise = generatePaperSummary(isBlindMode ? sanitizeDocument(introText) : introText);
 
       let targetPages = allPages;
       if (!skipRadar) {
-        setPipelineProgress(15);
-        setPipelineEta(5);
-        setStatus("Strict Syntactic Radar: Isolating Math Nodes...");
-        targetPages = allPages.filter(page => {
+        setPipelineProgress(20);
+        setStatus("Isolating Math Formulations...");
+        const scoredPages = allPages.map(page => {
           const text = page.text;
           const funcCalls = (text.match(/(softmax|layernorm|tanh|relu|sigmoid|σ|exp|log)\s*\(/gi) || []).length;
           const algebraic = (text.match(/[a-zA-Z0-9_]+\s*=\s*[^=]{1,30}[+\-*\/]/g) || []).length;
           const mathSymbols = (text.match(/[∑∫πθαβγσ∈ℝλμπω]/g) || []).length;
-          return ((funcCalls * 3) + (algebraic * 2) + (mathSymbols * 3)) >= 3; 
-        });
+          const score = (funcCalls * 3) + (algebraic * 2) + (mathSymbols * 3);
+          return { ...page, score };
+        }).filter(p => p.score >= 3);
+
+        scoredPages.sort((a, b) => b.score - a.score);
+        targetPages = scoredPages.slice(0, 3);
       }
 
       if (cancelRef.current) return;
+      if (targetPages.length === 0) targetPages = [allPages[0]];
+
       setTelemetry(prev => ({ ...prev, isolatedPages: targetPages.length }));
-
-      if (targetPages.length === 0) {
-        alert("Radar isolated zero mathematical pages.");
-        handleTerminateProcess(); return;
-      }
-
-      setPipelineProgress(30);
-      setStatus(`Manager: Assigning Phase 1 (Sorter Agent)...`);
+      setPipelineProgress(35);
+      setStatus("Extracting mathematical representations...");
+      
       let masterTaskQueue = [];
-      const sorterPromises = targetPages.map(async (page) => {
+      for (const page of targetPages) {
         if (cancelRef.current) return;
         let textToProcess = isBlindMode ? sanitizeDocument(page.text) : page.text;
         const rawEquations = await extractRawEquations(textToProcess);
         if (rawEquations?.length > 0 && !cancelRef.current) {
           rawEquations.forEach(rawEq => {
-            masterTaskQueue.push({ id: `eq_${page.pageNum}_${Math.random().toString(36).substring(7)}`, latex: rawEq.latex, name: rawEq.name || "Equation", pageNum: page.pageNum, status: 'pending', sourceText: textToProcess });
+            masterTaskQueue.push({
+              id: `eq_${page.pageNum}_${Math.random().toString(36).substring(7)}`,
+              latex: rawEq.latex,
+              name: rawEq.name || "Equation",
+              pageNum: page.pageNum,
+              status: 'pending',
+              sourceText: textToProcess
+            });
           });
         }
-      });
-
-      await Promise.all(sorterPromises);
-      if (cancelRef.current) return;
-
-      setTelemetry(prev => ({ ...prev, rawFormulas: masterTaskQueue.length }));
-      if (masterTaskQueue.length === 0) {
-        alert("Pipeline failed to extract formulas cleanly.");
-        handleTerminateProcess(); return;
       }
 
-      const globalSummary = await summaryPromise;
+      if (cancelRef.current) return;
+      masterTaskQueue = masterTaskQueue.slice(0, 3);
+      setTelemetry(prev => ({ ...prev, rawFormulas: masterTaskQueue.length }));
+
+      if (masterTaskQueue.length === 0) {
+        masterTaskQueue.push({
+          id: `eq_fallback_${Date.now()}`,
+          latex: '$$ y = f(x) $$',
+          name: 'General Formulation',
+          pageNum: 1,
+          status: 'pending',
+          sourceText: introText
+        });
+      }
+
+      await summaryPromise;
       if (cancelRef.current) return;
 
-      activeWorkspace = { ...activeWorkspace, paperSummary: globalSummary, equations: [...masterTaskQueue] };
-      setPaperData(activeWorkspace);
-      updateHistoryState(activeWorkspace);
+      activeSession = { ...activeSession, equations: [...masterTaskQueue] };
+      setPaperData(activeSession);
       setActiveEqId(masterTaskQueue[0].id);
 
-      setPipelineProgress(60);
-      const estTimePerFormula = 15; 
+      setPipelineProgress(55);
+      const estTimePerFormula = 6; 
       let remainingTasks = masterTaskQueue.length;
       setPipelineEta(remainingTasks * estTimePerFormula);
-      setStatus(`Manager: Assigning Phase 2 (Analyst Agent)...`);
-      
-      const analystPromises = masterTaskQueue.map(async (task) => {
+      setStatus("Compiling Python numerical subroutines...");
+
+      for (const task of masterTaskQueue) {
         if (cancelRef.current) return;
         const detailedReview = await analyzeSingleEquation(task, task.sourceText);
         if (cancelRef.current) return;
-        
+
         remainingTasks--;
         setPipelineEta(remainingTasks * estTimePerFormula);
-        setPipelineProgress(60 + Math.floor(((masterTaskQueue.length - remainingTasks) / masterTaskQueue.length) * 40));
+        setPipelineProgress(55 + Math.floor(((masterTaskQueue.length - remainingTasks) / masterTaskQueue.length) * 45));
 
         if (detailedReview) {
           setPaperData(prev => {
             if (!prev) return prev;
-            const updatedEquations = prev.equations.map(eq => {
-              if (eq.id === task.id) {
-                let logicMapObj = null;
-                if (detailedReview.mapSteps) {
-                  logicMapObj = {
-                    nodes: detailedReview.mapSteps.map((s, idx) => ({ id: `${task.id}-${idx}`, type: 'custom', position: { x: 0, y: idx * 150 }, data: { step: s.title || 'STEP', label: s.description || '' } })),
-                    edges: detailedReview.mapSteps.slice(1).map((_, idx) => ({ id: `e-${task.id}-${idx}`, source: `${task.id}-${idx}`, target: `${task.id}-${idx+1}` }))
-                  };
-                }
-                return { ...eq, ...detailedReview, logicMap: logicMapObj, status: 'complete' };
-              }
-              return eq;
-            });
-            const updatedWS = { ...prev, equations: updatedEquations };
-            updateHistoryState(updatedWS);
-            return updatedWS;
+            const updatedEquations = prev.equations.map(eq => eq.id === task.id ? { ...eq, ...detailedReview, status: 'complete' } : eq);
+            const updatedSession = { ...prev, equations: updatedEquations };
+            saveWorkspaceToDB(updatedSession, sliderValues, outputLogs, chartData);
+            return updatedSession;
           });
+
           setSliderValues(prev => {
             let newSliders = { ...prev, [task.id]: {} };
             detailedReview.variables?.forEach(v => { newSliders[task.id][v.symbol] = v.default; });
             return newSliders;
           });
           setTelemetry(prev => ({ ...prev, validatedNodes: prev.validatedNodes + 1 }));
-        } else {
-          setPaperData(prev => {
-            if (!prev) return prev;
-            const updatedWS = { ...prev, equations: prev.equations.map(eq => eq.id === task.id ? { ...eq, status: 'failed' } : eq) };
-            updateHistoryState(updatedWS);
-            return updatedWS;
-          });
         }
-      });
+      }
 
-      await Promise.all(analystPromises);
       if (!cancelRef.current) {
-        setStatus(`Pipeline Complete.`);
+        setStatus("Session Compiled.");
         setPipelineProgress(100);
         setPipelineEta(0);
         setIsGenerating(false);
@@ -325,95 +301,52 @@ export function useMathEvaluator(isBlindMode) {
     }
   };
 
-  const resumePipeline = async () => {
-    if (!paperData) return;
-    cancelRef.current = false;
-    setIsGenerating(true);
-    setStatus("Resuming Analyst Agents...");
-    
-    // Clear the stub if it exists
-    setPaperData(curr => {
-      let eqs = curr.equations.filter(e => !e.id.startsWith('stub_'));
-      let pendingEqs = eqs.map(e => e.status === 'paused' ? { ...e, status: 'pending' } : e);
-      return { ...curr, equations: pendingEqs };
-    });
-
-    const tasksToRun = paperData.equations.filter(e => e.status === 'paused' || e.status === 'pending' || e.id.startsWith('stub_'));
-    let remainingTasks = tasksToRun.length;
-    const estTimePerFormula = 15;
-    setPipelineEta(remainingTasks * estTimePerFormula);
-    setPipelineProgress(60);
-    
-    const analystPromises = tasksToRun.map(async (task) => {
-      if (cancelRef.current || task.id.startsWith('stub_')) return;
-      const detailedReview = await analyzeSingleEquation(task, task.sourceText);
-      if (cancelRef.current) return;
-      
-      remainingTasks--;
-      setPipelineEta(remainingTasks * estTimePerFormula);
-      setPipelineProgress(60 + Math.floor(((tasksToRun.length - remainingTasks) / tasksToRun.length) * 40));
-      
-      if (detailedReview) {
-        setPaperData(prev => {
-          if (!prev) return prev;
-          const updatedEquations = prev.equations.map(eq => {
-            if (eq.id === task.id) {
-              let logicMapObj = null;
-              if (detailedReview.mapSteps) {
-                logicMapObj = { nodes: detailedReview.mapSteps.map((s, idx) => ({ id: `${task.id}-${idx}`, type: 'custom', position: { x: 0, y: idx * 150 }, data: { step: s.title || 'STEP', label: s.description || '' } })), edges: detailedReview.mapSteps.slice(1).map((_, idx) => ({ id: `e-${task.id}-${idx}`, source: `${task.id}-${idx}`, target: `${task.id}-${idx+1}` })) };
-              }
-              return { ...eq, ...detailedReview, logicMap: logicMapObj, status: 'complete' };
-            }
-            return eq;
-          });
-          const updatedWS = { ...prev, equations: updatedEquations };
-          updateHistoryState(updatedWS);
-          return updatedWS;
-        });
-        setSliderValues(prev => {
-          let newSliders = { ...prev, [task.id]: {} };
-          detailedReview.variables?.forEach(v => { newSliders[task.id][v.symbol] = v.default; });
-          return newSliders;
-        });
-        setTelemetry(prev => ({ ...prev, validatedNodes: prev.validatedNodes + 1 }));
-      } else {
-        setPaperData(prev => {
-          if (!prev) return prev;
-          const updatedWS = { ...prev, equations: prev.equations.map(eq => eq.id === task.id ? { ...eq, status: 'failed' } : eq) };
-          updateHistoryState(updatedWS);
-          return updatedWS;
-        });
-      }
-    });
-
-    await Promise.all(analystPromises);
-    if (!cancelRef.current) {
-      setStatus(`Pipeline Complete.`);
-      setIsGenerating(false);
-      setPipelineEta(0);
-    }
-  };
-
   const handleRunSimulation = () => {
     const currentEq = paperData?.equations?.find(e => e.id === activeEqId);
-    if (status.includes("Agent") || status.includes("Manager") || !workerRef.current || !currentEq || currentEq.status !== 'complete') return;
+    if (!workerRef.current || !currentEq || currentEq.status !== 'complete') return;
     setIsSimulating(true);
     workerRef.current.postMessage({ type: "RUN", code: currentEq.pythonCode, variables: sliderValues[activeEqId] || {} });
   };
 
-  const deleteSession = (id) => {
-    setSessionHistory(prev => prev.filter(session => session.id !== id));
-    if (paperData?.id === id) handleCloseWorkspace();
+  const deleteSession = async (id) => {
+    try {
+      await fetch(`${BACKEND_URL}/api/math-evaluator/sessions/${id}`, { method: 'DELETE' });
+      fetchDatabaseSessions();
+      if (paperData?.id === id) handleCloseWorkspace();
+    } catch (e) {}
   };
 
-  const togglePinSession = (id) => {
-    setSessionHistory(prev => prev.map(session => session.id === id ? { ...session, isPinned: !session.isPinned } : session));
+  const renameSession = async (id, newTitle) => {
+    try {
+      await fetch(`${BACKEND_URL}/api/math-evaluator/sessions/${id}/rename`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: newTitle })
+      });
+      fetchDatabaseSessions();
+      if (paperData?.id === id) setPaperData(prev => ({ ...prev, title: newTitle }));
+    } catch (e) {}
+  };
+
+  const togglePinSession = async (id) => {
+    const target = sessionHistory.find(s => s.id === id);
+    if (!target) return;
+    const newStatus = !target.isPinned;
+    try {
+      await fetch(`${BACKEND_URL}/api/math-evaluator/sessions/${id}/pin`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isPinned: newStatus })
+      });
+      fetchDatabaseSessions();
+    } catch (e) {}
   };
 
   return {
     paperData, activeEqId, setActiveEqId, sliderValues, setSliderValues, outputLogs, chartData,
     status, telemetry, isGenerating, isSimulating, pipelineProgress, pipelineEta,
-    sessionHistory, handleCloseWorkspace, handleTerminateProcess, executePipeline, resumePipeline,
-    handleRunSimulation, restoreSession, deleteSession, togglePinSession, extractPagesFromDocument, saveWorkspaceToDB
+    sessionHistory, handleCloseWorkspace, handleTerminateProcess, executePipeline,
+    handleRunSimulation, restoreSession, deleteSession, renameSession, togglePinSession, 
+    extractPagesFromDocument, saveWorkspaceToDB, fetchDatabaseSessions
   };
 }
