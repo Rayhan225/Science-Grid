@@ -34,6 +34,7 @@ export default function CentralVault({ setCurrentView }) {
   // Drag State
   const [draggedItem, setDraggedItem] = useState(null);
   const [dragOverTargetId, setDragOverTargetId] = useState(null);
+  const draggedItemRef = useRef(null);
 
   // Notes State
   const [vaultNotes, setVaultNotes] = useState([]);
@@ -154,13 +155,19 @@ export default function CentralVault({ setCurrentView }) {
 
   const handleItemDragStart = (e, item) => {
     e.stopPropagation();
+    draggedItemRef.current = item;
     setDraggedItem(item);
+    if (e.dataTransfer) {
+      e.dataTransfer.setData('text/plain', item.id);
+      e.dataTransfer.effectAllowed = 'move';
+    }
   };
 
   const handleTargetDragOver = (e, targetId) => {
     e.preventDefault(); 
     e.stopPropagation();
-    if (draggedItem && draggedItem.id !== targetId) {
+    const currentItem = draggedItemRef.current || draggedItem;
+    if (currentItem && currentItem.id !== targetId) {
       setDragOverTargetId(targetId);
     }
   };
@@ -170,27 +177,31 @@ export default function CentralVault({ setCurrentView }) {
     e.stopPropagation();
     setDragOverTargetId(null);
 
-    if (!draggedItem || draggedItem.id === targetId) {
+    const itemToMove = draggedItemRef.current || draggedItem;
+
+    if (!itemToMove || itemToMove.id === targetId) {
+      draggedItemRef.current = null;
       setDraggedItem(null);
       return;
     } 
     
     try {
-      const res = await fetch(`${API_BASE}/api/library/${draggedItem.id}`, {
+      const res = await fetch(`${API_BASE}/api/library/${itemToMove.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          name: draggedItem.name, 
+          name: itemToMove.name, 
           parentId: targetId === 'root' ? null : targetId 
         })
       });
       if (!res.ok) throw new Error("Failed to move item.");
       
-      showFeedback(`Moved '${draggedItem.name}' successfully.`);
+      showFeedback(`Moved '${itemToMove.name}' successfully.`);
       fetchData();
     } catch (err) {
       showFeedback(err.message, 'error');
     }
+    draggedItemRef.current = null;
     setDraggedItem(null);
   };
 

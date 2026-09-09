@@ -1,7 +1,6 @@
 // pyodideWorker.js - Background thread for Python execution
 import { loadPyodide } from "https://cdn.jsdelivr.net/pyodide/v0.26.1/full/pyodide.mjs";
 
-
 let pyodide = null;
 let isInitializing = false;
 let initPromise = null;
@@ -19,6 +18,8 @@ async function getPyodide() {
     const py = await loadPyodide({
       indexURL: "https://cdn.jsdelivr.net/pyodide/v0.26.1/full/"
     });
+    // Pre-load numpy for mathematical subroutines
+    await py.loadPackage("numpy");
     pyodide = py;
     isInitializing = false;
     return py;
@@ -34,8 +35,11 @@ self.onmessage = async (e) => {
     try {
       const py = await getPyodide();
       
+      // Automatically detect and load any imported packages (numpy, scipy, sympy, etc.)
+      await py.loadPackagesFromImports(code);
+
       // Inject variables into Python namespace
-      for (const [key, value] of Object.entries(variables)) {
+      for (const [key, value] of Object.entries(variables || {})) {
         py.globals.set(key, value);
       }
       

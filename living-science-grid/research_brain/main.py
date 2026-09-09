@@ -798,6 +798,10 @@ class LibraryItemCreate(BaseModel):
     parentId: Optional[Union[int, str]] = None
     textContent: Optional[str] = None
 
+class LibraryItemUpdate(BaseModel):
+    name: Optional[str] = None
+    parentId: Optional[Union[int, str]] = None
+
 @app.get("/api/library/quota")
 async def get_library_quota():
     pool = await get_db()
@@ -867,6 +871,34 @@ async def resolve_file(filename: str):
     if not row:
         raise HTTPException(status_code=404, detail="File not resolved")
     return {"id": row["id"], "name": row["name"], "text_content": row["text_content"] or ""}
+
+@app.put("/api/library/{item_id}")
+async def update_library_item(item_id: str, item: LibraryItemUpdate):
+    pool = await get_db()
+    target_parent = None
+    if item.parentId not in [None, "root", "null", "", 0]:
+        try:
+            target_parent = int(item.parentId)
+        except (ValueError, TypeError):
+            target_parent = None
+
+    async with pool.acquire() as conn:
+        if item.name is not None and item.parentId is not None:
+            await conn.execute(
+                "UPDATE file_system SET name = $1, parent_id = $2 WHERE id = $3",
+                item.name, target_parent, int(item_id)
+            )
+        elif item.name is not None:
+            await conn.execute(
+                "UPDATE file_system SET name = $1 WHERE id = $2",
+                item.name, int(item_id)
+            )
+        elif item.parentId is not None:
+            await conn.execute(
+                "UPDATE file_system SET parent_id = $1 WHERE id = $2",
+                target_parent, int(item_id)
+            )
+    return {"status": "success"}
 
 @app.delete("/api/library/{item_id}")
 async def delete_library_item(item_id: str):
