@@ -11,7 +11,7 @@ import {
   AlertTriangle, Lightbulb, Workflow, BookOpen, Play, FilePlus, Loader2, 
   History, Terminal, Database, Clock, Paperclip, ArrowUp, Plus, Pin, 
   Trash2, Edit3, CheckCircle2, XCircle, ShieldCheck, Keyboard, Cpu, 
-  Info, X, ChevronDown, ChevronUp, MessageSquare, Send, CornerDownLeft
+  Info, X, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import 'katex/dist/katex.min.css';
@@ -122,12 +122,6 @@ export default function MathEvaluator({ telemetry: externalTelemetry, setTelemet
   const [showVaultModal, setShowVaultModal] = useState(false);
   const [vaultFiles, setVaultFiles] = useState([]);
   const [isBlindMode] = useState(false);
-  
-  // AI Copilot & Query Drawer State
-  const [isAiQueryOpen, setIsAiQueryOpen] = useState(false);
-  const [aiChatMessages, setAiChatMessages] = useState([]);
-  const [isAiThinking, setIsAiThinking] = useState(false);
-  const [queryInputText, setQueryInputText] = useState("");
 
   // History Editing State
   const [editingSessionId, setEditingSessionId] = useState(null);
@@ -151,7 +145,6 @@ export default function MathEvaluator({ telemetry: externalTelemetry, setTelemet
   const reportRef = useRef(null);
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
-  const queryTextareaRef = useRef(null);
   const workerRef = useRef(null);
   const cancelRef = useRef(false);
   const stateRef = useRef({ activeEqId, paperData, sliderValues });
@@ -504,7 +497,7 @@ export default function MathEvaluator({ telemetry: externalTelemetry, setTelemet
     }
   };
 
-  // Add individual equation directly via AI Query
+  // Add individual equation directly via Manual Add
   const handleAddCustomEquation = async (latexExpression, eqTitle = "Custom Node") => {
     const newEqId = `eq_custom_${Date.now()}`;
     const cleanLatex = latexExpression.includes('$') ? latexExpression : `$$ ${latexExpression} $$`;
@@ -547,62 +540,6 @@ export default function MathEvaluator({ telemetry: externalTelemetry, setTelemet
 
     setActiveEqId(newEqId);
     setInternalStatus("Node Ready");
-  };
-
-  const handleSendAiQuery = async (e) => {
-    if (e) e.preventDefault();
-    if (!queryInputText.trim() || isAiThinking) return;
-
-    const userQuery = queryInputText.trim();
-    setQueryInputText("");
-    const newMessages = [...aiChatMessages, { sender: 'user', text: userQuery, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }];
-    setAiChatMessages(newMessages);
-    setIsAiThinking(true);
-
-    // Check if query is an instruction to add or synthesize a formula
-    const addMatch = userQuery.match(/(?:add|create|plot|derive|evaluate)\s+(?:equation|formula)?\s*[:=]?\s*(.+)/i);
-    const hasMathSigns = userQuery.includes('=') || userQuery.includes('\\') || userQuery.includes('+') || userQuery.includes('^');
-
-    if (addMatch && hasMathSigns) {
-      const formulaCandidate = addMatch[1] || userQuery;
-      await handleAddCustomEquation(formulaCandidate, "Query Synthesis");
-      setAiChatMessages([...newMessages, { 
-        sender: 'ai', 
-        text: `Formula synthesized and added to workspace: \`${formulaCandidate}\`. Interactive parameter boundaries and WASM sandbox generated.`,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
-      }]);
-      setIsAiThinking(false);
-      return;
-    }
-
-    // Direct mathematical inquiry or conceptual evaluation
-    try {
-      const activeEquation = paperData?.equations?.find(eq => eq.id === activeEqId);
-      const promptContext = `Formula: ${activeEquation?.name || 'General'}\nLaTeX: ${activeEquation?.latex || 'N/A'}\nUser Query: ${userQuery}`;
-      
-      let answer = null;
-      try {
-        answer = await generatePaperSummary(`Answer this technical math inquiry clearly and concisely: ${promptContext}`);
-      } catch (err) {}
-
-      if (!answer) {
-        answer = `Evaluation for query: "${userQuery}". The active parameters map continuous gradient intervals. Adjusting boundary parameters in the slider view will track real-time WASM output deviations.`;
-      }
-
-      setAiChatMessages(prev => [...prev, {
-        sender: 'ai',
-        text: answer,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      }]);
-    } catch (err) {
-      setAiChatMessages(prev => [...prev, {
-        sender: 'ai',
-        text: "Could not evaluate query against current math pipeline. Please verify input parameters.",
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      }]);
-    } finally {
-      setIsAiThinking(false);
-    }
   };
 
   const restoreSession = async (sessionRecord) => {
@@ -805,9 +742,9 @@ export default function MathEvaluator({ telemetry: externalTelemetry, setTelemet
   };
 
   const insertMathSymbol = (symbol) => {
-    const targetRef = isAiQueryOpen ? queryTextareaRef : textareaRef;
-    const currentVal = isAiQueryOpen ? queryInputText : manualPrompt;
-    const setVal = isAiQueryOpen ? setQueryInputText : setManualPrompt;
+    const targetRef = textareaRef;
+    const currentVal = manualPrompt;
+    const setVal = setManualPrompt;
 
     const cursorPosition = targetRef.current?.selectionStart || currentVal.length;
     const textBefore = currentVal.substring(0, cursorPosition);
@@ -859,7 +796,6 @@ export default function MathEvaluator({ telemetry: externalTelemetry, setTelemet
                 <ul className="space-y-2">
                   <li><span className="text-cyan-400 font-bold">1.</span> Direct PDF/TXT binary parsing with syntax scoring.</li>
                   <li><span className="text-cyan-400 font-bold">2.</span> Natural math queries (e.g., <code>y = 2*x + 1</code> or LaTeX).</li>
-                  <li><span className="text-cyan-400 font-bold">3.</span> Real-time AI Query Copilot for derivations and analysis.</li>
                 </ul>
               </div>
               <div className="space-y-3">
@@ -902,81 +838,6 @@ export default function MathEvaluator({ telemetry: externalTelemetry, setTelemet
               )}
             </div>
           </div>
-        </div>
-      )}
-
-      {/* AI QUERY & COPILOT DRAWER */}
-      {isAiQueryOpen && (
-        <div className={`fixed top-0 right-0 bottom-0 z-50 w-80 md:w-[420px] border-l shadow-2xl flex flex-col transition-transform duration-300 animate-slideLeft ${themeClasses.bgCard} ${isLight ? 'border-slate-200' : 'border-white/10'}`}>
-          <div className="p-4 border-b border-white/10 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <MessageSquare className="text-cyan-400" size={16}/>
-              <h3 className={`font-mono text-xs font-bold uppercase tracking-wider ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                AI Math Query Copilot
-              </h3>
-            </div>
-            <button onClick={() => setIsAiQueryOpen(false)} className="text-slate-400 hover:text-white p-1">
-              <X size={16}/>
-            </button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-4 space-y-3 hide-scrollbar">
-            {aiChatMessages.length === 0 ? (
-              <div className="text-center text-slate-500 text-xs py-10 space-y-2">
-                <Sparkles className="mx-auto text-cyan-400 opacity-60" size={24}/>
-                <p className="font-mono">Ask theory questions, request derivations, or type:</p>
-                <code className="text-[10px] text-cyan-400/80 bg-white/5 px-2 py-1 rounded block">Add equation: L = -\sum y \log(\hat{y})</code>
-              </div>
-            ) : (
-              aiChatMessages.map((msg, i) => (
-                <div key={i} className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
-                  <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed ${
-                    msg.sender === 'user' 
-                      ? 'bg-cyan-500 text-black font-medium rounded-tr-none' 
-                      : isLight ? 'bg-slate-100 text-slate-800 rounded-tl-none border border-slate-200' : 'bg-white/5 text-slate-200 rounded-tl-none border border-white/10'
-                  }`}>
-                    {msg.sender === 'ai' ? (
-                      <ReactMarkdown rehypePlugins={[rehypeKatex]} remarkPlugins={[remarkMath]}>
-                        {msg.text}
-                      </ReactMarkdown>
-                    ) : (
-                      msg.text
-                    )}
-                  </div>
-                  <span className="text-[9px] font-mono text-slate-500 mt-1 px-1">{msg.time}</span>
-                </div>
-              ))
-            )}
-            {isAiThinking && (
-              <div className="flex items-center gap-2 text-cyan-400 text-xs font-mono py-2">
-                <Loader2 className="animate-spin" size={14}/> Processing math formulation...
-              </div>
-            )}
-          </div>
-
-          <form onSubmit={handleSendAiQuery} className="p-3 border-t border-white/10 flex items-center gap-2">
-            <textarea
-              ref={queryTextareaRef}
-              rows={1}
-              value={queryInputText}
-              onChange={(e) => setQueryInputText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSendAiQuery(e);
-                }
-              }}
-              placeholder="Ask Copilot or add formulation..."
-              className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 font-mono resize-none hide-scrollbar"
-            />
-            <button
-              type="submit"
-              disabled={!queryInputText.trim() || isAiThinking}
-              className="p-2.5 bg-cyan-500 text-black hover:bg-cyan-400 disabled:opacity-30 rounded-xl font-bold transition-all"
-            >
-              <Send size={13}/>
-            </button>
-          </form>
         </div>
       )}
 
@@ -1117,12 +978,6 @@ export default function MathEvaluator({ telemetry: externalTelemetry, setTelemet
           </div>
 
           <div className="flex items-center gap-3">
-            <button 
-              onClick={() => setIsAiQueryOpen(!isAiQueryOpen)}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-mono uppercase tracking-wider border transition-all ${isAiQueryOpen ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30' : 'border-white/10 bg-white/5 hover:bg-white/10 text-slate-300'}`}
-            >
-              <MessageSquare size={14}/> AI Copilot
-            </button>
             <button onClick={() => setShowManual(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-mono uppercase tracking-wider border border-white/10 bg-white/5 hover:bg-white/10 text-slate-300 transition-all">
               <Info size={14}/> Manual
             </button>
