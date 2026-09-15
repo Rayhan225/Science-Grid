@@ -14,6 +14,24 @@ export function sanitizeDocument(text) {
 }
 
 /**
+ * Sanitizes Unicode mathematical characters that trigger KaTeX strict-mode warnings
+ * (e.g. '∆' U+2206 to \Delta, 'Ω' U+2126 to \Omega).
+ */
+export function sanitizeKatexString(text) {
+  if (!text || typeof text !== 'string') return text || '';
+  return text
+    .replace(/[\u2206∆]/g, '\\Delta ')
+    .replace(/[\u2126Ω]/g, '\\Omega ')
+    .replace(/[\u2207∇]/g, '\\nabla ')
+    .replace(/[\u2211∑]/g, '\\sum ')
+    .replace(/[\u220F∏]/g, '\\prod ')
+    .replace(/[\u2248≈]/g, '\\approx ')
+    .replace(/[\u2260≠]/g, '\\neq ')
+    .replace(/[\u2264≤]/g, '\\le ')
+    .replace(/[\u2265≥]/g, '\\ge ');
+}
+
+/**
  * Safely parses and auto-repairs truncated or malformed JSON output from LLM swarm calls.
  */
 function extractValidJSON(rawText) {
@@ -77,117 +95,63 @@ export async function generatePaperSummary(contextText) {
 
 /**
  * Extracts raw mathematical formulas and converts OCR text to clean LaTeX structures.
+/**
+ * Extracts raw mathematical formulas and converts OCR text to clean LaTeX structures.
+ * Connects directly to specialized /api/research/math-extract endpoint.
+ * Supports any 50+ page manuscript without dropping pages or failing on non-math text.
  */
-export async function extractRawEquations(pageText) {
+export async function extractRawEquations(pageTextOrPages, options = {}) {
   try {
-    const systemPrompt = `
-      Extract all mathematical formulas, Machine Learning metrics, or loss functions from the provided text.
-      Convert any messy OCR text into clean LaTeX.
-      
-      Return EXACTLY this JSON object structure. NO explanation. NO markdown.
-      
-      {
-        "equations": [
-          {
-            "latex": "$$ y = mx + b $$",
-            "name": "Linear Equation"
-          }
-        ]
-      }
-    `;
+    let payload = {};
+    if (typeof pageTextOrPages === 'string') {
+      payload = { text: pageTextOrPages, ...options };
+    } else if (Array.isArray(pageTextOrPages)) {
+      payload = { pages: pageTextOrPages, ...options };
+    } else if (typeof pageTextOrPages === 'object' && pageTextOrPages !== null) {
+      payload = { ...pageTextOrPages, ...options };
+    }
 
-    const response = await fetch(`${BACKEND_URL}/api/research/swarm`, {
+    const response = await fetch(`${BACKEND_URL}/api/research/math-extract`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        query: systemPrompt,
-        context: pageText
-      })
+      body: JSON.stringify(payload)
     });
 
     if (!response.ok) return [];
     const data = await response.json();
-    const parsed = extractValidJSON(data.response);
-    
-    return (parsed && Array.isArray(parsed.equations)) ? parsed.equations : [];
-    
+    return Array.isArray(data.equations) ? data.equations : [];
   } catch (error) { 
+    console.warn("Math extract error:", error);
     return []; 
   }
 }
 
 /**
  * Performs deep evaluation on an isolated equation, generating conceptual descriptions,
- * critique ratings, executable Python subroutines, variable boundaries, and ReactFlow map nodes.
+ * critique ratings, executable Python subroutines, variable boundaries, 50-point trajectory curve,
+ * and ReactFlow map nodes.
  */
 export async function analyzeSingleEquation(equationObj, pageText) {
   try {
-    const systemPrompt = `
-      You are an elite academic Peer Review System.
-      Analyze this specific formula: ${equationObj.latex} (${equationObj.name})
-      Use the provided page context.
-      
-      PYTHON RULE: Write a flat Python script. Assume variables are auto-injected globally. Do NOT write a function.
-      
-      You MUST return exactly this JSON structure. Do not add markdown.
-      
-      {
-        "concept": "1 detailed paragraph explaining what this math does in the context of the paper.",
-        "rating": "Good",
-        "critique": "1 paragraph critiquing this specific formula.",
-        "alternatives": "Alternative implementations.",
-        "pythonCode": "result = var1 * var2\\nprint(result)",
-        "variables": [
-          { "symbol": "var1", "label": "Name of Variable", "min": 1, "max": 100, "default": 10, "effect": "Effect of changing." }
-        ],
-        "mapSteps": [
-          {"title": "PREMISE", "description": "The claim."},
-          {"title": "EQUATION", "description": "The logic."},
-          {"title": "CONCLUSION", "description": "The result."}
-        ],
-        "citations": []
-      }
-    `;
+    const payload = {
+      latex: equationObj.latex || equationObj.equation || "$$ y = f(x) $$",
+      name: equationObj.name || "Mathematical Formulation",
+      pageNum: equationObj.pageNum || 1,
+      context: typeof pageText === 'string' ? pageText.substring(0, 3000) : "",
+      paper_id: equationObj.paperId || null
+    };
 
-    const response = await fetch(`${BACKEND_URL}/api/research/swarm`, {
+    const response = await fetch(`${BACKEND_URL}/api/research/math-analyze`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        query: systemPrompt,
-        context: pageText
-      })
+      body: JSON.stringify(payload)
     });
 
     if (!response.ok) return null;
     const data = await response.json();
-    const parsed = extractValidJSON(data.response);
-
-    // Build ReactFlow-compatible logicMap format expected by MathEvaluator.jsx
-    if (parsed) {
-      if (!parsed.logicMap && Array.isArray(parsed.mapSteps)) {
-        const nodes = parsed.mapSteps.map((step, idx) => ({
-          id: `node-${idx}`,
-          type: 'custom',
-          position: { x: 50, y: idx * 130 },
-          data: {
-            step: step.title || `STEP ${idx + 1}`,
-            label: step.description || step.label || ''
-          }
-        }));
-        const edges = parsed.mapSteps.slice(0, -1).map((_, idx) => ({
-          id: `edge-${idx}-${idx + 1}`,
-          source: `node-${idx}`,
-          target: `node-${idx + 1}`,
-          animated: true,
-          style: { stroke: '#06b6d4', strokeWidth: 2 }
-        }));
-        parsed.logicMap = { nodes, edges };
-      }
-    }
-
-    return parsed;
-    
+    return data;
   } catch (error) { 
+    console.warn("Math analyze error:", error);
     return null; 
   }
 }
