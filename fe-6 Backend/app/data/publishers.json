@@ -1,0 +1,83 @@
+[
+    {
+        "id": 1,
+        "name": "IEEE",
+        "description": "Research papers in computer science, artificial intelligence, machine learning, engineering, education technology and related technical fields.",
+        "format": {
+            "citation_style": "IEEE",
+            "font": "Times New Roman",
+            "font_size": 10,
+            "double_column": true
+        },
+        "keywords": [
+            "artificial intelligence",
+            "machine learning",
+            "deep learning",
+            "computer vision",
+            "education",
+            "student",
+            "attention",
+            "classification"
+        ]
+    },
+    {
+        "id": 2,
+        "name": "Springer",
+        "description": "Academic research covering computer science, artificial intelligence, machine learning, educational technology and data science.",
+        "format": {
+            "citation_style": "Springer",
+            "font": "Times New Roman",
+            "font_size": 10,
+            "double_column": false
+        },
+        "keywords": [
+            "artificial intelligence",
+            "machine learning",
+            "data science",
+            "education",
+            "computer vision",
+            "student",
+            "attention"
+        ]
+    },
+    {
+        "id": 3,
+        "name": "Elsevier",
+        "description": "Scientific research in artificial intelligence, computer science, education, data science and related interdisciplinary fields.",
+        "format": {
+            "citation_style": "Elsevier",
+            "font": "Times New Roman",
+            "font_size": 11,
+            "double_column": false
+        },
+        "keywords": [
+            "artificial intelligence",
+            "education",
+            "machine learning",
+            "data science",
+            "student",
+            "attention",
+            "learning"
+        ]
+    },
+    {
+        "id": 4,
+        "name": "ACM",
+        "description": "Research publications in computing, artificial intelligence, machine learning, human computer interaction and educational technology.",
+        "format": {
+            "citation_style": "ACM",
+            "font": "Times New Roman",
+            "font_size": 9,
+            "double_column": true
+        },
+        "keywords": [
+            "computer science",
+            "artificial intelligence",
+            "machine learning",
+            "computer vision",
+            "student",
+            "education",
+            "attention"
+        ]
+    }
+]
