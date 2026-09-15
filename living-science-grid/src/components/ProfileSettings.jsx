@@ -241,18 +241,38 @@ export default function ProfileSettings({ setCurrentView }) {
               </div>
 
               <div>
-                <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-2">Actor Persona Scope</label>
-                <select 
-                  name="role" 
-                  value={user.role || 'researcher'} 
-                  onChange={handleUserChange}
-                  className={`w-full p-4 rounded-2xl border text-xs font-mono outline-none transition-all capitalize ${isLight ? 'bg-slate-50 border-slate-200 text-slate-800 focus:border-cyan-500' : 'bg-[#0f0f0f] border-white/10 text-white focus:border-cyan-400'}`}
-                >
-                  <option value="researcher">Researcher / Author (Manuscripts & AST Execution)</option>
-                  <option value="student">Student (Literature Parsing & Equations)</option>
-                  <option value="developer">Developer / Programmer (Git Linker & REST APIs)</option>
-                  <option value="reviewer">Peer Reviewer / Editor (Plagiarism & Replication)</option>
-                </select>
+                <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-2">
+                  Actor Persona Scope (Institutional Role)
+                </label>
+                <div className={`w-full p-4 rounded-2xl border text-xs font-mono flex items-center justify-between ${
+                  isLight ? 'bg-slate-100 border-slate-200 text-slate-700' : 'bg-white/5 border-white/10 text-slate-300'
+                }`}>
+                  <div className="flex items-center gap-2.5">
+                    <span className="text-base">
+                      {user.role === 'admin' ? '🛡️' :
+                       user.role === 'programmer' ? '💻' :
+                       user.role === 'student' ? '🎓' :
+                       user.role === 'reviewer' ? '⚡' : '🔬'}
+                    </span>
+                    <div>
+                      <span className="font-bold text-white capitalize">{user.role || 'researcher'}</span>
+                      <span className="text-[10px] text-slate-400 block font-mono">
+                        {user.role === 'admin' ? 'System Infrastructure & Security Authority' :
+                         user.role === 'programmer' ? 'Code Synthesizer & Microbenchmark Specialist' :
+                         user.role === 'student' ? 'Academic Ingestion & Curated Equation Learner' :
+                         user.role === 'reviewer' ? 'Methodological Rigor & Plagiarism Forensics' :
+                         'Principal Investigator & Literature Synthesis'}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-teal-500/10 border border-teal-500/30 text-teal-400 text-[10px] font-mono">
+                    <Lock size={11} />
+                    <span>Account Bound</span>
+                  </div>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-1.5 font-mono">
+                  Institutional role is permanently bound to this sovereign account for security governance.
+                </p>
               </div>
 
               <div className="md:col-span-2">
