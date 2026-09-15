@@ -1,13 +1,19 @@
 // src/components/InsightLens.jsx
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
+import * as pdfjsLib from 'pdfjs-dist';
+import ReactMarkdown from 'react-markdown';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 import { 
   BookOpen, ChevronLeft, ChevronRight, Search, Send, RefreshCw, 
   Highlighter, X, Crop, BookMarked, MessageSquare, Database, 
   Play, Pause, Square, Volume2, PenTool, Save, Undo2, Redo2, Eraser, 
   ZoomIn, ZoomOut, UploadCloud, BrainCircuit, Info, Orbit, CloudDownload,
   PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, CheckCircle2, Trash2,
-  Pin, Edit3, Plus
+  Pin, Edit3, Plus, Copy, Check, Sparkles, Tag, ExternalLink, Download, Languages,
+  FileText, BookmarkPlus
 } from 'lucide-react';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
@@ -76,6 +82,26 @@ export default function InsightLens() {
   const [manualNoteSource, setManualNoteSource] = useState('InsightLens Manual Note');
   const [noteSaveStatus, setNoteSaveStatus] = useState(null);
 
+  // SciSpace Research Notebook State
+  const [paperNotes, setPaperNotes] = useState([]);
+  const [activeNoteCategory, setActiveNoteCategory] = useState('All');
+  const [noteSearchQuery, setNoteSearchQuery] = useState('');
+  const [isComposingNote, setIsComposingNote] = useState(false);
+  const [newNoteTitle, setNewNoteTitle] = useState('');
+  const [newNoteCategory, setNewNoteCategory] = useState('Key Finding');
+  const [newNotePage, setNewNotePage] = useState(1);
+  const [newNoteText, setNewNoteText] = useState('');
+  const [newNoteQuote, setNewNoteQuote] = useState('');
+  const [newNoteImage, setNewNoteImage] = useState(null);
+  const [copiedNoteId, setCopiedNoteId] = useState(null);
+  const [exportFeedback, setExportFeedback] = useState(false);
+  const [copiedChatIdx, setCopiedChatIdx] = useState(null);
+
+  // Reading Stream & Translation State
+  const [translatedStreamText, setTranslatedStreamText] = useState('');
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [speechRate, setSpeechRate] = useState(1.0);
+
   const [chatInput, setChatInput] = useState("");
   const [isAgentTyping, setIsAgentTyping] = useState(false);
   const [aiResponseBuffer, setAiResponseBuffer] = useState("");
@@ -125,9 +151,15 @@ export default function InsightLens() {
     }
   };
 
-  const saveWorkspaceToDB = async (updatedWorkspace, currentChat, currentAnnotations) => {
+  const saveWorkspaceToDB = async (updatedWorkspace, currentChat, currentAnnotations, currentNotes = null) => {
     if (!updatedWorkspace) return;
     try {
+      const effectiveNotes = currentNotes !== null ? currentNotes : (paperNotes || []);
+      const statePayload = {
+        ...(updatedWorkspace.stateData || {}),
+        notes: effectiveNotes
+      };
+
       await fetch(`${BACKEND_URL}/api/insightlens/workspaces`, {
         method: 'POST', 
         headers: { 'Content-Type': 'application/json' },
@@ -143,7 +175,7 @@ export default function InsightLens() {
           chatHistory: currentChat || [],
           annotations: currentAnnotations || {},
           metadata: updatedWorkspace.metadata || {},
-          stateData: updatedWorkspace.stateData || {}
+          stateData: statePayload
         })
       });
       fetchSavedSessions();
@@ -226,7 +258,31 @@ export default function InsightLens() {
       const summaryText = await generatePaperSummary(synthesizedWorkspace.stateData.paperMemory["1"] || "");
       synthesizedWorkspace.paperSummary = summaryText;
 
-      await saveWorkspaceToDB(synthesizedWorkspace, [], {});
+      // Connect to local SLM ingest endpoint to populate smart review questions
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        const ingestRes = await fetch(`${BACKEND_URL}/api/research/ingest`, {
+          method: "POST",
+          body: formData
+        });
+        if (ingestRes.ok) {
+          const ingestJson = await ingestRes.json();
+          if (ingestJson.smartQuestions && ingestJson.smartQuestions.length > 0) {
+            synthesizedWorkspace.chatHistory = [
+              {
+                role: 'assistant',
+                content: `### 🤖 Llama-3.2-3B Peer Review Prompts\n\n${ingestJson.smartQuestions.join('\n\n')}`
+              }
+            ];
+          }
+        }
+      } catch (e) {
+        console.warn("Server-side SLM ingest note:", e);
+      }
+
+      await saveWorkspaceToDB(synthesizedWorkspace, synthesizedWorkspace.chatHistory, {});
+      setPaperData({ ...synthesizedWorkspace });
       setStatusInternal("Ready"); 
       setIsGenerating(false);
     } catch (err) {
@@ -359,28 +415,48 @@ export default function InsightLens() {
     }
   };
 
+  const createPdfFileFromRaw = (rawContent, filename) => {
+    let blob;
+    if (rawContent.startsWith('data:application/pdf') || rawContent.startsWith('data:')) {
+      const base64Data = rawContent.includes(',') ? rawContent.split(',')[1] : rawContent;
+      const cleanBase64 = base64Data.replace(/\s/g, '');
+      const binaryStr = window.atob(cleanBase64);
+      const bytes = new Uint8Array(binaryStr.length);
+      for (let i = 0; i < binaryStr.length; i++) {
+        bytes[i] = binaryStr.charCodeAt(i);
+      }
+      blob = new Blob([bytes], { type: 'application/pdf' });
+    } else {
+      blob = new Blob([rawContent], { type: 'application/pdf' });
+    }
+    return new File([blob], filename, { type: 'application/pdf' });
+  };
+
+  const mountPdfOnlyFromUrl = async (url, filename, targetPage = 1) => {
+    try {
+      setStatusInternal(`Loading ${filename}...`);
+      const res = await fetch(url);
+      const data = await res.json();
+      const rawContent = data.content || data.text_content || "";
+      if (rawContent) {
+        const file = createPdfFileFromRaw(rawContent, filename);
+        setPdfFile(file);
+        setPageNumber(targetPage);
+      }
+      setStatusInternal("Ready");
+    } catch (err) {
+      console.warn("PDF mount notice:", err);
+      setStatusInternal("Ready");
+    }
+  };
+
   const loadPdfFileFromUrl = async (url, filename, targetPage = 1) => {
     try {
       setStatusInternal(`Loading ${filename}...`);
       const res = await fetch(url);
       const data = await res.json();
-      const rawContent = data.content || "";
-
-      let blob;
-      if (rawContent.startsWith('data:application/pdf') || rawContent.startsWith('data:')) {
-        const base64Data = rawContent.includes(',') ? rawContent.split(',')[1] : rawContent;
-        const cleanBase64 = base64Data.replace(/\s/g, '');
-        const binaryStr = window.atob(cleanBase64);
-        const bytes = new Uint8Array(binaryStr.length);
-        for (let i = 0; i < binaryStr.length; i++) {
-          bytes[i] = binaryStr.charCodeAt(i);
-        }
-        blob = new Blob([bytes], { type: 'application/pdf' });
-      } else {
-        blob = new Blob([rawContent], { type: 'application/pdf' });
-      }
-
-      const file = new File([blob], filename, { type: 'application/pdf' });
+      const rawContent = data.content || data.text_content || "";
+      const file = createPdfFileFromRaw(rawContent, filename);
       setPdfFile(file);
       setPageNumber(targetPage);
       await executeExtractionPipeline(file, data.id);
@@ -401,19 +477,24 @@ export default function InsightLens() {
   };
 
   const handleSelectLedgerSession = async (session) => {
+    if (isGenerating) cancelRef.current = true;
+    setIsGenerating(false);
+    setStatusInternal("Ready");
+
     setPaperData(session);
     setChatHistory(session.chatHistory || []);
     setAnnotations(session.annotations || session.stateData?.annotations || {});
+    setPaperNotes(session.stateData?.notes || []);
     setPageNumber(1);
-    
+
     const fileId = session.fileId || session.stateData?.fileId;
     if (fileId) {
-      loadPdfFileFromUrl(`${BACKEND_URL}/api/library/file/${fileId}`, session.title);
+      mountPdfOnlyFromUrl(`${BACKEND_URL}/api/library/file/${fileId}`, session.title, 1);
     } else {
       const res = await fetch(`${BACKEND_URL}/api/library/resolve-file?filename=${encodeURIComponent(session.title)}`);
       if (res.ok) {
         const data = await res.json();
-        loadPdfFileFromUrl(`${BACKEND_URL}/api/library/file/${data.id}`, session.title);
+        mountPdfOnlyFromUrl(`${BACKEND_URL}/api/library/file/${data.id}`, session.title, 1);
       }
     }
   };
@@ -606,16 +687,19 @@ export default function InsightLens() {
     setTimeout(renderCanvas, 100); 
   }, [pageNumber, renderCanvas, scale]);
 
-  // --- FIXED QUERY PART ---
+  // --- SCI-SPACE CONTEXT QUERY (No Prompt Leakage) ---
   const executeContextQuery = async (text, promptOverride) => {
     setIsAiEvaluating(true); 
     setAiResponseBuffer("");
     try {
-      const fullPrompt = promptOverride ? `Direct answer only. No filler text. Query: ${promptOverride}` : "Direct answer only. Explain this context.";
+      const userInstruction = promptOverride || "Provide a concise, rigorous academic explanation of this excerpt from page " + pageNumber + ".";
       const res = await fetch(`${BACKEND_URL}/api/research/swarm`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: fullPrompt, context: text })
+        body: JSON.stringify({ 
+          query: `Instruction: Directly provide an academic evaluation of the referenced text. Do not echo system instructions or prompt headers. Cite details clearly:\n\n${userInstruction}`, 
+          context: `Document: ${paperData?.title || 'Manuscript'}\nPage: ${pageNumber}\nExcerpt: ${text}` 
+        })
       });
       if (res.ok) {
         const data = await res.json();
@@ -630,35 +714,63 @@ export default function InsightLens() {
     }
   };
 
-  // --- FIXED COPILOT CHATTING PART ---
+  // --- SCI-SPACE MULTI-PAGE CHAT WITH PDF ---
   const handleChatSubmit = async (e = null, customQuery = null) => {
     if (e && e.preventDefault) e.preventDefault();
     const query = customQuery || chatInput;
     if (!query.trim() || !paperData) return;
 
-    const userMessage = { role: 'user', content: query, image: activeBase64Image };
+    let formattedUserMsg = query;
+    if (activeSelectionText && !query.includes(activeSelectionText)) {
+      formattedUserMsg = `[Referenced Excerpt p.${pageNumber}: "${activeSelectionText}"]\n\n${query}`;
+    }
+
+    const userMessage = { role: 'user', content: formattedUserMsg, image: activeBase64Image };
     const newHistory = [...chatHistory, userMessage];
     setChatHistory(newHistory); 
     setChatInput(""); 
     setIsAgentTyping(true);
 
-    const contextData = paperData.stateData?.paperMemory?.[pageNumber.toString()] || "";
+    const currentPageText = paperData.stateData?.paperMemory?.[pageNumber.toString()] || "";
+    let contextData = `=== ACTIVE VIEW: PAGE ${pageNumber} ===\n${currentPageText.slice(0, 3000)}`;
+
+    const keywords = query.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !['what', 'when', 'where', 'which', 'explain', 'summarize', 'about', 'paper', 'this'].includes(w));
+    if (paperData.stateData?.paperMemory) {
+      let otherPages = [];
+      Object.entries(paperData.stateData.paperMemory).forEach(([pageNumStr, pageContent]) => {
+        if (pageNumStr === pageNumber.toString()) return;
+        const pageLower = pageContent.toLowerCase();
+        const score = keywords.reduce((acc, kw) => acc + (pageLower.includes(kw) ? 1 : 0), 0);
+        if (score > 0) otherPages.push({ pageNum: pageNumStr, content: pageContent, score });
+      });
+      otherPages.sort((a, b) => b.score - a.score);
+      otherPages.slice(0, 2).forEach(p => {
+        contextData += `\n\n=== RELEVANT CROSS-PAGE EXCERPT: PAGE ${p.pageNum} ===\n${p.content.slice(0, 1500)}`;
+      });
+    }
+
+    const promptWithRigor = `You are InsightLens Copilot, an elite academic research assistant. Answer strictly based on the document excerpts provided. Cite exact page numbers in brackets (e.g. [Page ${pageNumber}]) for evidence. Maintain scholarly clarity with concise headers, bold key points, and bulleted takeaways.\n\nUser Question: ${formattedUserMsg}`;
+
     try {
       const res = await fetch(`${BACKEND_URL}/api/research/swarm`, { 
         method: "POST", 
         headers: { "Content-Type": "application/json" }, 
         body: JSON.stringify({ 
-          query: query, 
-          context: contextData.slice(0, 4000),
+          query: promptWithRigor, 
+          context: contextData,
           image: activeBase64Image || null
         }) 
       });
       if (res.ok) {
         const data = await res.json();
-        const assistantMessage = { role: 'assistant', content: data.response || "No response received." };
+        const assistantMessage = { 
+          role: 'assistant', 
+          content: data.response || "No response received.",
+          page: pageNumber
+        };
         const updatedHistory = [...newHistory, assistantMessage];
         setChatHistory(updatedHistory);
-        saveWorkspaceToDB(paperData, updatedHistory, annotations);
+        saveWorkspaceToDB(paperData, updatedHistory, annotations, paperNotes);
       } else {
         const errorMsg = { role: 'assistant', content: "Backend server returned an error." };
         setChatHistory([...newHistory, errorMsg]);
@@ -669,31 +781,147 @@ export default function InsightLens() {
       setIsAgentTyping(false); 
       setActiveBase64Image(null); 
       setActiveSelectionText(""); 
+      setAiResponseBuffer("");
     }
   };
 
-  const saveToGlobalVault = async () => {
-    try { 
-      await fetch(`${BACKEND_URL}/api/vault/notes`, { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify({ 
-          source: paperData?.title || "InsightLens", 
-          page_number: pageNumber, 
-          text: activeSelectionText || "Visual Frame Capture", 
-          insight: aiResponseBuffer,
-          image: activeBase64Image 
-        }) 
-      }); 
+  // --- SCI-SPACE RESEARCH NOTEBOOK HANDLERS ---
+  const handleAddNote = async (noteData) => {
+    const noteId = `note_${Date.now()}`;
+    const newNote = {
+      id: noteId,
+      title: noteData.title || `Note (p. ${noteData.page || pageNumber})`,
+      category: noteData.category || 'General',
+      page: Number(noteData.page || pageNumber),
+      quote: noteData.quote || "",
+      image: noteData.image || null,
+      insight: noteData.insight || "",
+      text: noteData.text || "",
+      createdAt: new Date().toISOString()
+    };
+
+    const updatedNotes = [newNote, ...paperNotes];
+    setPaperNotes(updatedNotes);
+
+    if (paperData) {
+      const updatedWorkspace = {
+        ...paperData,
+        stateData: {
+          ...(paperData.stateData || {}),
+          notes: updatedNotes
+        }
+      };
+      setPaperData(updatedWorkspace);
+      saveWorkspaceToDB(updatedWorkspace, chatHistory, annotations, updatedNotes);
+    }
+
+    try {
+      await fetch(`${BACKEND_URL}/api/vault/notes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source: paperData?.title || "InsightLens Document",
+          page_number: newNote.page,
+          text: newNote.quote || newNote.text || "Insight Note",
+          insight: newNote.insight || newNote.text,
+          image: newNote.image || null
+        })
+      });
       fetchVaultNotes();
-    } catch(e) {}
-    setActiveSelectionText(""); 
-    setActiveBase64Image(null); 
-    setAiResponseBuffer(""); 
+    } catch (e) {}
+
+    setIsComposingNote(false);
+    setNewNoteTitle('');
+    setNewNoteText('');
+    setNewNoteQuote('');
+    setNewNoteImage(null);
+  };
+
+  const handleDeletePaperNote = async (noteId) => {
+    const updatedNotes = paperNotes.filter(n => n.id !== noteId);
+    setPaperNotes(updatedNotes);
+    if (paperData) {
+      const updatedWorkspace = {
+        ...paperData,
+        stateData: {
+          ...(paperData.stateData || {}),
+          notes: updatedNotes
+        }
+      };
+      setPaperData(updatedWorkspace);
+      saveWorkspaceToDB(updatedWorkspace, chatHistory, annotations, updatedNotes);
+    }
+  };
+
+  const handleExportNotesMarkdown = () => {
+    if (paperNotes.length === 0) return;
+    const md = `# Research Notes: ${paperData?.title || 'Document'}\nExported: ${new Date().toLocaleString()}\n\n` +
+      paperNotes.map((n, i) => {
+        let block = `### ${i + 1}. ${n.title} [Page ${n.page}] (${n.category})\n`;
+        if (n.quote) block += `> "${n.quote}"\n\n`;
+        if (n.insight) block += `**AI Insight:**\n${n.insight}\n\n`;
+        if (n.text) block += `**Observations:**\n${n.text}\n\n`;
+        return block;
+      }).join('---\n\n');
+
+    navigator.clipboard.writeText(md);
+    setExportFeedback(true);
+    setTimeout(() => setExportFeedback(false), 2500);
+  };
+
+  const saveInsightAsNote = (category = 'Key Finding') => {
+    handleAddNote({
+      title: activeSelectionText ? `Excerpt Review (p. ${pageNumber})` : `Visual Snip (p. ${pageNumber})`,
+      category: category,
+      page: pageNumber,
+      quote: activeSelectionText || "",
+      image: activeBase64Image || null,
+      insight: aiResponseBuffer,
+      text: "Captured from Copilot targeted evaluation."
+    });
+    setActiveSelectionText("");
+    setActiveBase64Image(null);
+    setAiResponseBuffer("");
     setActiveRightTab('notebook');
   };
 
-  // --- FIXED AUDIO PART ---
+  // --- READING STREAM & BANGLA TRANSLATION ---
+  const handleTranslateCurrentPage = async (targetLangKey = speechLanguage) => {
+    const sourceText = paperData?.stateData?.paperMemory?.[pageNumber.toString()];
+    if (!sourceText) return;
+
+    setIsTranslating(true);
+    const langMap = { 
+      "en-US": "English", 
+      "bn-BD": "Bengali (বাংলা)", 
+      "fr-FR": "French", 
+      "es-ES": "Spanish", 
+      "de-DE": "German", 
+      "ja-JP": "Japanese",
+      "zh-CN": "Chinese"
+    };
+    const targetLangName = langMap[targetLangKey] || targetLangKey;
+
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/research/swarm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          query: `Translate the following academic manuscript excerpt accurately to ${targetLangName}. Preserve technical terminology accurately. Output ONLY the clean translation without any preamble or commentary:\n\n${sourceText.slice(0, 3000)}`, 
+          context: sourceText.slice(0, 3000)
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTranslatedStreamText(data.response || "Translation unavailable.");
+      }
+    } catch (e) {
+      setTranslatedStreamText("Translation engine offline.");
+    } finally {
+      setIsTranslating(false);
+    }
+  };
+
   const stopAudio = () => {
     window.speechSynthesis.cancel();
     setAudioState({ isPlaying: false, isPaused: false, progress: 0, text: "" });
@@ -703,7 +931,7 @@ export default function InsightLens() {
     if (audioState.isPlaying) {
       if (audioState.isPaused) {
         window.speechSynthesis.resume();
-        setAudioState(prev => ({ ...prev, isPaused: false, text: "Streaming output..." }));
+        setAudioState(prev => ({ ...prev, isPaused: false, text: "Streaming reading narration..." }));
       } else {
         window.speechSynthesis.pause();
         setAudioState(prev => ({ ...prev, isPaused: true, text: "Paused." }));
@@ -711,51 +939,29 @@ export default function InsightLens() {
       return;
     }
 
-    const sourceText = paperData?.stateData?.paperMemory?.[pageNumber.toString()];
+    const sourceText = translatedStreamText || paperData?.stateData?.paperMemory?.[pageNumber.toString()];
     if (!sourceText) return;
 
-    setAudioState({ isPlaying: true, isPaused: false, progress: 0, text: "Processing translation..." });
+    setAudioState({ isPlaying: true, isPaused: false, progress: 0, text: "Synthesizing speech stream..." });
 
     try {
-      const langMap = { 
-        "en-US": "English", 
-        "bn-BD": "Bengali", 
-        "fr-FR": "French", 
-        "es-ES": "Spanish", 
-        "de-DE": "German", 
-        "ja-JP": "Japanese",
-        "zh-CN": "Chinese"
-      };
-
-      let finalSpeechText = sourceText.slice(0, 2000);
-
-      if (speechLanguage !== 'en-US') {
-        const targetLang = langMap[speechLanguage] || speechLanguage;
-        const res = await fetch(`${BACKEND_URL}/api/research/swarm`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ 
-            query: `Translate the following to ${targetLang} cleanly without preamble. Output ONLY the translated text:\n\n${finalSpeechText}`, 
-            context: finalSpeechText 
-          })
-        });
-        const data = await res.json();
-        if (data && data.response) {
-          finalSpeechText = data.response;
-        }
-      }
-
-      setAudioState({ isPlaying: true, isPaused: false, progress: 0, text: "Initializing audio stream..." });
-
       window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(finalSpeechText);
+      const textToSpeak = sourceText.slice(0, 3500);
+      const utterance = new SpeechSynthesisUtterance(textToSpeak);
       utterance.lang = speechLanguage; 
-      utterance.rate = 0.95;
+      utterance.rate = speechRate;
+
+      try {
+        const voices = window.speechSynthesis.getVoices();
+        const langCode = speechLanguage.split('-')[0];
+        const matchVoice = voices.find(v => v.lang.toLowerCase().startsWith(langCode));
+        if (matchVoice) utterance.voice = matchVoice;
+      } catch (err) {}
 
       utterance.onboundary = (e) => {
         setAudioState(prev => ({ 
           ...prev, 
-          progress: Math.min(100, Math.round((e.charIndex / finalSpeechText.length) * 100)) 
+          progress: Math.min(100, Math.round((e.charIndex / textToSpeak.length) * 100)) 
         }));
       };
 
@@ -764,12 +970,12 @@ export default function InsightLens() {
       };
 
       utterance.onerror = () => {
-        setAudioState({ isPlaying: false, isPaused: false, progress: 0, text: "TTS failure." });
+        setAudioState({ isPlaying: false, isPaused: false, progress: 0, text: "TTS playback ended." });
       };
 
       speechUtteranceRef.current = utterance;
       window.speechSynthesis.speak(utterance);
-      setAudioState({ isPlaying: true, isPaused: false, progress: 0, text: "Streaming output..." });
+      setAudioState({ isPlaying: true, isPaused: false, progress: 0, text: "Active audio reading stream..." });
     } catch (e) { 
       setAudioState({ isPlaying: false, isPaused: false, progress: 0, text: "TTS failure." }); 
     }
@@ -1061,17 +1267,21 @@ export default function InsightLens() {
               </button>
             </div>
 
-            <div className={`h-full transition-all duration-300 ease-in-out overflow-hidden border-l ${isLight ? 'border-slate-200 bg-white/50' : 'border-white/10 bg-black/40'} ${isRightOpen ? 'w-[360px]' : 'w-0'}`}>
+            <div className={`h-full transition-all duration-300 ease-in-out overflow-hidden border-l ${isLight ? 'border-slate-200 bg-white/70' : 'border-white/10 bg-black/40'} ${isRightOpen ? 'w-[360px]' : 'w-0'}`}>
               <div className="w-[360px] h-full flex flex-col overflow-hidden">
-                <div className={`p-2 border-b flex flex-shrink-0 ${isLight ? 'border-slate-200 bg-black/5' : 'border-white/10 bg-black/60'}`}>
-                  <button onClick={() => setActiveRightTab('copilot')} className={`flex-1 py-1.5 flex justify-center items-center gap-1.5 rounded-lg text-[9px] font-mono uppercase tracking-widest ${activeRightTab==='copilot'?'bg-white/10 text-white font-bold':'text-slate-500 hover:bg-white/5 transition-colors'}`}><MessageSquare size={12} /> Copilot</button>
-                  <button onClick={() => setActiveRightTab('notebook')} className={`flex-1 py-1.5 flex justify-center items-center gap-1.5 rounded-lg text-[9px] font-mono uppercase tracking-widest ${activeRightTab==='notebook'?'bg-white/10 text-white font-bold':'text-slate-500 hover:bg-white/5 transition-colors'}`}><BookMarked size={12} /> Notes</button>
-                  <button onClick={() => setActiveRightTab('audio')} className={`flex-1 py-1.5 flex justify-center items-center gap-1.5 rounded-lg text-[9px] font-mono uppercase tracking-widest ${activeRightTab==='audio'?'bg-white/10 text-white font-bold':'text-slate-500 hover:bg-white/5 transition-colors'}`}><Volume2 size={12} /> Stream</button>
+                <div className={`p-2 border-b flex flex-shrink-0 ${isLight ? 'border-slate-200 bg-slate-100/80' : 'border-white/10 bg-black/60'}`}>
+                  <button onClick={() => setActiveRightTab('copilot')} className={`flex-1 py-1.5 flex justify-center items-center gap-1.5 rounded-lg text-[9px] font-mono uppercase tracking-widest transition-all ${activeRightTab==='copilot' ? (isLight ? 'bg-white text-slate-900 font-bold shadow-sm' : 'bg-white/10 text-white font-bold shadow') : (isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-black/5' : 'text-slate-400 hover:text-white hover:bg-white/5')}`}><MessageSquare size={12} /> Copilot</button>
+                  <button onClick={() => setActiveRightTab('notebook')} className={`flex-1 py-1.5 flex justify-center items-center gap-1.5 rounded-lg text-[9px] font-mono uppercase tracking-widest transition-all ${activeRightTab==='notebook' ? (isLight ? 'bg-white text-slate-900 font-bold shadow-sm' : 'bg-white/10 text-white font-bold shadow') : (isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-black/5' : 'text-slate-400 hover:text-white hover:bg-white/5')}`}>
+                    <BookMarked size={12} /> Notes {paperNotes.length > 0 && <span className="bg-emerald-500/20 text-emerald-400 px-1.5 py-0.2 rounded-full text-[8px] font-bold">{paperNotes.length}</span>}
+                  </button>
+                  <button onClick={() => setActiveRightTab('audio')} className={`flex-1 py-1.5 flex justify-center items-center gap-1.5 rounded-lg text-[9px] font-mono uppercase tracking-widest transition-all ${activeRightTab==='audio' ? (isLight ? 'bg-white text-slate-900 font-bold shadow-sm' : 'bg-white/10 text-white font-bold shadow') : (isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-black/5' : 'text-slate-400 hover:text-white hover:bg-white/5')}`}><Volume2 size={12} /> Stream</button>
                 </div>
 
                 <div className="flex-grow overflow-y-auto p-4 custom-scrollbar flex flex-col">
+                  {/* COPILOT TAB */}
                   {activeRightTab === 'copilot' && (
                     <>
+                      {/* Suggested Review Questions */}
                       {paperData?.stateData?.smartQuestions && chatHistory.length === 0 && !activeSelectionText && !activeBase64Image && (
                         <div className="mb-4 space-y-2 animate-fadeIn">
                           <span className="text-[10px] font-mono text-emerald-400 uppercase tracking-widest font-bold flex items-center gap-1.5 mb-2">
@@ -1085,166 +1295,563 @@ export default function InsightLens() {
                         </div>
                       )}
 
+                      {/* SciSpace Quick Prompt Chips */}
+                      {chatHistory.length > 0 && (
+                        <div className="mb-3 pb-2 border-b border-white/5 flex items-center gap-1.5 overflow-x-auto hide-scrollbar flex-shrink-0">
+                          <button onClick={() => handleChatSubmit(null, "Summarize the core novelty and empirical contributions of this paper")} className="px-2.5 py-1 bg-white/5 hover:bg-white/10 text-slate-300 text-[9px] font-mono uppercase tracking-wider rounded-lg whitespace-nowrap border border-white/5">
+                            📌 Novelty & Summary
+                          </button>
+                          <button onClick={() => handleChatSubmit(null, `Explain the methodology and technical architecture discussed around page ${pageNumber}`)} className="px-2.5 py-1 bg-white/5 hover:bg-white/10 text-slate-300 text-[9px] font-mono uppercase tracking-wider rounded-lg whitespace-nowrap border border-white/5">
+                            🔬 Methods (p.{pageNumber})
+                          </button>
+                          <button onClick={() => handleChatSubmit(null, "Identify limitations, assumptions, and theoretical bottlenecks")} className="px-2.5 py-1 bg-white/5 hover:bg-white/10 text-slate-300 text-[9px] font-mono uppercase tracking-wider rounded-lg whitespace-nowrap border border-white/5">
+                            ⚠️ Bottlenecks
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Targeted Selection & Visual Snippet Card */}
                       {(activeSelectionText || activeBase64Image) && (
                         <div className="mb-4 bg-black/40 border border-white/10 p-4 rounded-xl shadow-lg animate-fadeIn select-none">
                           <div className="flex justify-between items-center mb-3">
-                            <span className={`text-[10px] font-mono uppercase tracking-widest font-bold ${themeClasses.accentText}`}>Targeted Selection</span>
+                            <span className={`text-[10px] font-mono uppercase tracking-widest font-bold ${themeClasses.accentText}`}>Targeted Excerpt (p. {pageNumber})</span>
                             <button onClick={()=>{setActiveSelectionText(""); setActiveBase64Image(null); setAiResponseBuffer("");}} className="bg-white/5 p-1 rounded-full hover:bg-white/10">
                               <X size={11} className="text-slate-400" />
                             </button>
                           </div>
                           
                           {activeBase64Image ? (
-                            <img src={`data:image/jpeg;base64,${activeBase64Image}`} alt="Crop Frame" className="w-full rounded-lg border border-white/10 mb-3 shadow-inner"/>
+                            <img src={`data:image/jpeg;base64,${activeBase64Image}`} alt="Crop Frame" className="w-full rounded-lg border border-white/10 mb-3 shadow-inner max-h-48 object-contain bg-black/50"/>
                           ) : (
                             <div className="bg-black/40 p-3 rounded-lg border border-white/5 mb-3 max-h-24 overflow-y-auto custom-scrollbar">
-                              <p className={`text-xs font-serif italic text-slate-300 border-l pl-2 select-text ${themeClasses.accentBorder}`}>"{activeSelectionText}"</p>
+                              <p className={`text-xs font-serif italic text-slate-300 border-l-2 pl-2 select-text ${themeClasses.accentBorder}`}>"{activeSelectionText}"</p>
                             </div>
                           )}
 
                           {!aiResponseBuffer && !isAiEvaluating ? (
-                            <div className="grid grid-cols-2 gap-2">
-                              <button onClick={()=>executeContextQuery(activeSelectionText, "Explain this formulation or statement accurately.")} className="py-2 bg-white/5 hover:bg-white/10 text-[10px] font-bold font-mono uppercase text-slate-300 rounded-lg border border-white/5 transition-all">Explain</button>
-                              <button onClick={()=>executeContextQuery(activeSelectionText, "Identify potential theoretical bottlenecks or limitations.")} className="py-2 bg-white/5 hover:bg-white/10 text-[10px] font-bold font-mono uppercase text-slate-300 rounded-lg border border-white/5 transition-all">Critique</button>
+                            <div className="grid grid-cols-3 gap-1.5">
+                              <button onClick={()=>executeContextQuery(activeSelectionText, "Explain this academic excerpt and its core implication.")} className="py-2 bg-white/5 hover:bg-white/10 text-[10px] font-bold font-mono uppercase text-slate-300 rounded-lg border border-white/5 transition-all flex items-center justify-center gap-1">
+                                <Sparkles size={11} className="text-cyan-400"/> Explain
+                              </button>
+                              <button onClick={()=>executeContextQuery(activeSelectionText, "Critique the methodology, validity, and potential bottlenecks.")} className="py-2 bg-white/5 hover:bg-white/10 text-[10px] font-bold font-mono uppercase text-slate-300 rounded-lg border border-white/5 transition-all flex items-center justify-center gap-1">
+                                <AlertCircle size={11} className="text-amber-400"/> Critique
+                              </button>
+                              <button onClick={() => {
+                                setNewNoteQuote(activeSelectionText || "");
+                                setNewNoteImage(activeBase64Image || null);
+                                setNewNotePage(pageNumber);
+                                setNewNoteTitle(`Excerpt (p. ${pageNumber})`);
+                                setIsComposingNote(true);
+                                setActiveRightTab('notebook');
+                              }} className="py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-[10px] font-bold font-mono uppercase text-emerald-400 rounded-lg border border-emerald-500/20 transition-all flex items-center justify-center gap-1">
+                                <BookmarkPlus size={11}/> Note
+                              </button>
                             </div>
                           ) : (
-                            <div className="bg-black/40 p-3 rounded-lg border border-white/10 mt-1">
-                              {isAiEvaluating ? <div className={`text-[10px] font-mono tracking-widest uppercase animate-pulse ${themeClasses.accentText}`}>Running Inferences...</div> : 
+                            <div className="bg-black/50 p-3.5 rounded-xl border border-white/10 mt-1">
+                              {isAiEvaluating ? (
+                                <div className={`text-[10px] font-mono tracking-widest uppercase animate-pulse flex items-center gap-2 ${themeClasses.accentText}`}>
+                                  <RefreshCw size={11} className="animate-spin"/> Evaluating Excerpt...
+                                </div>
+                              ) : (
                                 <>
-                                  <p className="text-xs text-slate-300 leading-relaxed select-text">{aiResponseBuffer}</p>
-                                  <button onClick={saveToGlobalVault} className="mt-3 w-full py-2 bg-white/5 hover:bg-white/10 text-white text-[10px] uppercase tracking-widest font-bold font-mono rounded-lg flex justify-center items-center gap-1.5 border border-white/10 transition-all"><Save size={12} /> Store Insight</button>
+                                  <div className="prose prose-invert max-w-none text-xs leading-relaxed select-text space-y-1.5 [&_h3]:text-xs [&_h3]:font-bold [&_h3]:text-emerald-400 [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 [&_strong]:text-emerald-300 mb-3">
+                                    <ReactMarkdown rehypePlugins={[rehypeKatex]} remarkPlugins={[remarkMath]}>
+                                      {aiResponseBuffer}
+                                    </ReactMarkdown>
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <button onClick={() => saveInsightAsNote('Key Finding')} className="flex-1 py-2 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-[10px] uppercase tracking-widest font-bold font-mono rounded-lg flex justify-center items-center gap-1.5 border border-emerald-500/30 transition-all">
+                                      <BookmarkPlus size={12} /> Pin to Notes
+                                    </button>
+                                    <button onClick={() => { navigator.clipboard.writeText(aiResponseBuffer); }} className="px-3 py-2 bg-white/5 hover:bg-white/10 text-slate-300 text-[10px] font-mono rounded-lg border border-white/10">
+                                      <Copy size={12}/>
+                                    </button>
+                                  </div>
                                 </>
-                              }
+                              )}
                             </div>
                           )}
                         </div>
                       )}
 
+                      {/* Chat Messages */}
                       <div className="flex-grow space-y-3">
                         {chatHistory.map((msg, i) => (
-                          <div key={i} className={`p-4 rounded-xl border ${msg.role === 'user' ? 'bg-black/20 border-white/5 ml-4' : 'bg-black/5 border-white/10 mr-4'}`}>
-                            <div className="text-[9px] font-mono uppercase tracking-widest mb-1.5 opacity-50">{msg.role === 'user' ? 'You' : 'RAG Copilot'}</div>
-                            {msg.image && <img src={`data:image/jpeg;base64,${msg.image}`} alt="Attachment" className="w-full rounded-lg mb-2.5 border border-white/10 shadow-md"/>}
-                            <p className="text-xs font-light whitespace-pre-wrap leading-relaxed select-text">{msg.content}</p>
+                          <div key={i} className={`p-4 rounded-2xl border ${msg.role === 'user' ? (isLight ? 'bg-slate-100 border-slate-200 ml-3' : 'bg-black/30 border-white/10 ml-3') : (isLight ? 'bg-white border-slate-200 mr-2 shadow-sm' : 'bg-black/10 border-white/10 mr-2 shadow-sm')}`}>
+                            <div className="text-[9px] font-mono uppercase tracking-widest mb-1.5 flex items-center justify-between opacity-60">
+                              <span>{msg.role === 'user' ? 'You' : 'InsightLens Copilot'}</span>
+                              {msg.role !== 'user' && (
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => {
+                                      handleAddNote({
+                                        title: `Copilot Insight (p. ${msg.page || pageNumber})`,
+                                        category: 'AI Insight',
+                                        page: msg.page || pageNumber,
+                                        insight: msg.content,
+                                        text: 'Pinned from Copilot discussion.'
+                                      });
+                                      setActiveRightTab('notebook');
+                                    }}
+                                    className="hover:text-emerald-400 flex items-center gap-1 text-[9px] font-mono normal-case"
+                                    title="Pin to Notes"
+                                  >
+                                    <BookmarkPlus size={11} /> Save to Notes
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(msg.content);
+                                      setCopiedChatIdx(i);
+                                      setTimeout(() => setCopiedChatIdx(null), 2000);
+                                    }}
+                                    className="hover:text-emerald-400 flex items-center gap-1 text-[9px] font-mono normal-case"
+                                    title="Copy response"
+                                  >
+                                    {copiedChatIdx === i ? <Check size={11} className="text-emerald-400"/> : <Copy size={11}/>}
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                            {msg.image && <img src={`data:image/jpeg;base64,${msg.image}`} alt="Attachment" className="w-full rounded-lg mb-2.5 border border-white/10 shadow-md max-h-48 object-contain"/>}
+                            {msg.role === 'user' ? (
+                              <p className={`text-xs font-light whitespace-pre-wrap leading-relaxed select-text ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>{msg.content}</p>
+                            ) : (
+                              <div className={`prose ${isLight ? 'prose-slate text-slate-800' : 'prose-invert text-slate-200'} max-w-none text-xs leading-relaxed select-text [&_h3]:text-xs [&_h3]:font-bold [&_h3]:font-mono [&_h3]:text-emerald-500 [&_h3]:mb-2 [&_h3]:mt-2 [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 [&_li]:mb-1 [&_strong]:text-emerald-400 [&_p]:mb-2`}>
+                                <ReactMarkdown rehypePlugins={[rehypeKatex]} remarkPlugins={[remarkMath]}>
+                                  {msg.content}
+                                </ReactMarkdown>
+                              </div>
+                            )}
                           </div>
                         ))}
-                        {isAgentTyping && <div className={`text-[10px] font-mono animate-pulse ml-1 ${themeClasses.accentText}`}>Evaluating state data...</div>}
+                        {isAgentTyping && <div className={`text-[10px] font-mono animate-pulse ml-1 flex items-center gap-2 ${themeClasses.accentText}`}><RefreshCw size={11} className="animate-spin"/> Evaluating multi-page context...</div>}
                       </div>
                     </>
                   )}
 
+                  {/* SCISPACE RESEARCH NOTEBOOK TAB */}
                   {activeRightTab === 'notebook' && (
-                    <div className="space-y-4 select-none">
-                      <div className="p-3 bg-black/20 border border-white/5 rounded-xl flex items-center justify-between text-xs">
-                        <span className="text-slate-400 font-mono text-[10px] uppercase tracking-widest">Supabase Vault Notes</span>
-                        <Database size={13} className="text-cyan-400" />
+                    <div className="space-y-3.5 select-none flex-grow flex flex-col">
+                      {/* Notebook Control Bar */}
+                      <div className={`p-3 border rounded-2xl flex items-center justify-between ${isLight ? 'bg-white border-slate-200 shadow-sm' : 'bg-black/30 border-white/10'}`}>
+                        <div>
+                          <div className={`text-xs font-mono font-bold uppercase tracking-wider flex items-center gap-1.5 ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                            <BookMarked size={14} className="text-emerald-500"/> Research Notebook
+                          </div>
+                          <div className="text-[9px] font-mono text-slate-500 mt-0.5">
+                            {paperNotes.length} notes total • {paperNotes.filter(n => n.page === pageNumber).length} on p.{pageNumber}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={handleExportNotesMarkdown}
+                            className={`px-2.5 py-1.5 border rounded-lg text-[9px] font-mono uppercase tracking-wider flex items-center gap-1 transition-colors ${isLight ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200' : 'bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border-white/10'}`}
+                            title="Copy all notes as formatted academic Markdown"
+                          >
+                            {exportFeedback ? <Check size={11} className="text-emerald-500"/> : <Download size={11}/>}
+                            {exportFeedback ? "Copied" : "Export"}
+                          </button>
+                          <button
+                            onClick={() => {
+                              setIsComposingNote(!isComposingNote);
+                              setNewNotePage(pageNumber);
+                            }}
+                            className={`px-3 py-1.5 rounded-lg text-[9px] font-mono uppercase font-bold tracking-wider flex items-center gap-1 transition-all ${isComposingNote ? 'bg-emerald-500 text-black' : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30'}`}
+                          >
+                            <Plus size={12}/> Note
+                          </button>
+                        </div>
                       </div>
 
-                      <form onSubmit={handleManualSaveNote} className="space-y-2.5 p-3.5 bg-black/30 border border-white/10 rounded-2xl">
-                        <div className="text-[10px] font-mono uppercase tracking-wider text-cyan-400 font-bold">Add Note to Database</div>
-                        {noteSaveStatus && (
-                          <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] font-mono flex items-center gap-1.5">
-                            <CheckCircle2 size={13} /> {noteSaveStatus}
-                          </div>
-                        )}
-                        <div>
-                          <input 
-                            type="text" 
-                            value={manualNoteSource} 
-                            onChange={(e) => setManualNoteSource(e.target.value)}
-                            placeholder="Source Label..."
-                            className="w-full p-2 rounded-xl bg-black/40 border border-white/10 text-xs font-mono text-white outline-none"
-                          />
-                        </div>
-                        <div>
-                          <textarea 
-                            rows="2"
-                            value={manualNoteText} 
-                            onChange={(e) => setManualNoteText(e.target.value)}
-                            placeholder="Type observation or commentary..."
-                            className="w-full p-2.5 rounded-xl bg-black/40 border border-white/10 text-xs font-mono text-white outline-none resize-none"
-                            required
-                          />
-                        </div>
-                        <button 
-                          type="submit"
-                          className={`w-full py-2 rounded-xl text-xs font-mono font-bold uppercase tracking-wider text-white flex items-center justify-center gap-1.5 shadow-md ${themeClasses.accentBg}`}
-                        >
-                          <Save size={13} /> Commit Note to Cloud DB
-                        </button>
-                      </form>
+                      {/* Category Filter Pills */}
+                      <div className="flex items-center gap-1 overflow-x-auto hide-scrollbar pb-1 flex-shrink-0">
+                        {['All', 'Key Finding', 'Methodology', 'Result', 'Limitation', 'AI Insight', 'General'].map(cat => (
+                          <button
+                            key={cat}
+                            onClick={() => setActiveNoteCategory(cat)}
+                            className={`px-2.5 py-1 rounded-lg text-[9px] font-mono uppercase tracking-wider whitespace-nowrap transition-colors border ${
+                              activeNoteCategory === cat
+                                ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300 font-bold'
+                                : 'bg-white/[0.02] border-white/5 text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            {cat}
+                          </button>
+                        ))}
+                      </div>
 
-                      <div className="space-y-2">
-                        <div className="text-[10px] font-mono uppercase tracking-widest text-slate-500">Supabase Archive ({vaultNotesList.length})</div>
-                        {vaultNotesList.length === 0 ? (
-                          <div className="text-xs text-slate-500 text-center py-6 font-mono">No notes stored in database yet.</div>
-                        ) : (
-                          vaultNotesList.map(note => (
-                            <div key={note.id} className="p-3.5 bg-black/40 border border-white/5 rounded-xl shadow-md relative group">
-                              <div className="flex items-center justify-between mb-1">
-                                <span className="text-[9px] font-mono text-cyan-400 uppercase tracking-widest font-bold">{note.source} (p. {note.page_number})</span>
-                                <button onClick={() => handleDeleteVaultNote(note.id)} className="text-slate-500 hover:text-rose-400 transition-colors" title="Delete Note">
-                                  <Trash2 size={12} />
-                                </button>
-                              </div>
-                              {note.image && <img src={`data:image/jpeg;base64,${note.image}`} alt="Note Attachment" className="w-full my-2 rounded-lg border border-white/10 shadow-sm"/>}
-                              {note.text && <p className="text-xs font-serif text-slate-200 leading-relaxed my-1 select-text">{note.text}</p>}
-                              {note.insight && <div className="text-[11px] text-slate-400 mt-2 bg-black/60 border border-white/5 p-2 rounded-lg select-text">{note.insight}</div>}
-                              <div className="text-[8px] font-mono text-slate-600 mt-1">{note.created_at?.substring(0, 10)}</div>
-                            </div>
-                          ))
+                      {/* Note Search */}
+                      <div className="flex items-center bg-black/20 border border-white/10 rounded-xl px-2.5 py-1.5 focus-within:border-emerald-500/40 transition-colors">
+                        <Search size={12} className="text-slate-500 mr-2 shrink-0"/>
+                        <input
+                          type="text"
+                          value={noteSearchQuery}
+                          onChange={(e) => setNoteSearchQuery(e.target.value)}
+                          placeholder="Search notebook entries..."
+                          className="bg-transparent text-xs text-white outline-none w-full font-mono placeholder:text-slate-600"
+                        />
+                        {noteSearchQuery && (
+                          <button onClick={() => setNoteSearchQuery('')} className="text-slate-500 hover:text-white">
+                            <X size={12}/>
+                          </button>
                         )}
+                      </div>
+
+                      {/* Inline Note Composer */}
+                      {isComposingNote && (
+                        <div className="p-4 bg-black/50 border border-emerald-500/30 rounded-2xl space-y-3 animate-fadeIn shadow-2xl">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-mono uppercase tracking-widest text-emerald-400 font-bold flex items-center gap-1.5">
+                              <Edit3 size={12}/> Compose Note
+                            </span>
+                            <button onClick={() => setIsComposingNote(false)} className="text-slate-500 hover:text-white">
+                              <X size={13}/>
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-2">
+                            <div className="col-span-2">
+                              <input
+                                type="text"
+                                value={newNoteTitle}
+                                onChange={(e) => setNewNoteTitle(e.target.value)}
+                                placeholder="Note title..."
+                                className="w-full p-2 bg-black/40 border border-white/10 rounded-xl text-xs font-mono text-white outline-none focus:border-emerald-500/50"
+                              />
+                            </div>
+                            <div>
+                              <select
+                                value={newNoteCategory}
+                                onChange={(e) => setNewNoteCategory(e.target.value)}
+                                className="w-full p-2 bg-[#0d0d0d] border border-white/10 rounded-xl text-xs font-mono text-slate-300 outline-none cursor-pointer"
+                              >
+                                <option value="Key Finding">Key Finding</option>
+                                <option value="Methodology">Methodology</option>
+                                <option value="Result">Result</option>
+                                <option value="Limitation">Limitation</option>
+                                <option value="AI Insight">AI Insight</option>
+                                <option value="General">General</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          {/* Quote Attachment */}
+                          {newNoteQuote && (
+                            <div className="p-2.5 bg-black/40 rounded-xl border border-white/5 relative group">
+                              <div className="text-[8px] font-mono text-emerald-400 uppercase tracking-widest mb-1 flex justify-between">
+                                <span>Attached Quote (p.{newNotePage})</span>
+                                <button onClick={() => setNewNoteQuote('')} className="hover:text-red-400"><X size={10}/></button>
+                              </div>
+                              <p className="text-xs font-serif italic text-slate-300 leading-relaxed border-l pl-2 border-emerald-500">"{newNoteQuote}"</p>
+                            </div>
+                          )}
+
+                          {/* Image Attachment */}
+                          {newNoteImage && (
+                            <div className="p-2 bg-black/40 rounded-xl border border-white/5 relative">
+                              <div className="text-[8px] font-mono text-emerald-400 uppercase tracking-widest mb-1 flex justify-between">
+                                <span>Attached Snippet (p.{newNotePage})</span>
+                                <button onClick={() => setNewNoteImage(null)} className="hover:text-red-400"><X size={10}/></button>
+                              </div>
+                              <img src={`data:image/jpeg;base64,${newNoteImage}`} alt="Snippet" className="max-h-24 rounded object-contain"/>
+                            </div>
+                          )}
+
+                          <textarea
+                            rows="3"
+                            value={newNoteText}
+                            onChange={(e) => setNewNoteText(e.target.value)}
+                            placeholder="Add your synthesis, experimental observations, or critique..."
+                            className="w-full p-2.5 bg-black/40 border border-white/10 rounded-xl text-xs font-sans text-white outline-none resize-none focus:border-emerald-500/50"
+                          />
+
+                          <div className="flex items-center justify-between pt-1">
+                            <div className="flex items-center gap-1.5 text-[10px] font-mono text-slate-500">
+                              <span>Page:</span>
+                              <input
+                                type="number"
+                                min="1"
+                                max={paperData?.totalPages || 1}
+                                value={newNotePage}
+                                onChange={(e) => setNewNotePage(Number(e.target.value))}
+                                className="w-12 bg-black/40 border border-white/10 rounded px-1.5 py-0.5 text-center text-xs font-mono text-white"
+                              />
+                            </div>
+                            <div className="flex gap-2">
+                              <button onClick={() => setIsComposingNote(false)} className="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-slate-400 text-xs font-mono rounded-lg">Cancel</button>
+                              <button
+                                onClick={() => handleAddNote({
+                                  title: newNoteTitle.trim() || `Observation (p. ${newNotePage})`,
+                                  category: newNoteCategory,
+                                  page: newNotePage,
+                                  quote: newNoteQuote,
+                                  image: newNoteImage,
+                                  text: newNoteText
+                                })}
+                                disabled={!newNoteText.trim() && !newNoteQuote && !newNoteImage}
+                                className="px-4 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-black font-bold font-mono text-xs uppercase tracking-wider rounded-lg disabled:opacity-40"
+                              >
+                                Save Note
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* SciSpace Note Cards List */}
+                      <div className="space-y-2.5 flex-grow overflow-y-auto custom-scrollbar select-text pr-1">
+                        {paperNotes
+                          .filter(n => activeNoteCategory === 'All' || n.category === activeNoteCategory)
+                          .filter(n => !noteSearchQuery.trim() || (
+                            (n.title && n.title.toLowerCase().includes(noteSearchQuery.toLowerCase())) ||
+                            (n.text && n.text.toLowerCase().includes(noteSearchQuery.toLowerCase())) ||
+                            (n.quote && n.quote.toLowerCase().includes(noteSearchQuery.toLowerCase())) ||
+                            (n.insight && n.insight.toLowerCase().includes(noteSearchQuery.toLowerCase()))
+                          ))
+                          .length === 0 ? (
+                            <div className="text-center py-12 text-slate-500 text-xs font-mono">
+                              No notes in this view. Click "+ Note" or highlight document text to clip observations.
+                            </div>
+                          ) : (
+                            paperNotes
+                              .filter(n => activeNoteCategory === 'All' || n.category === activeNoteCategory)
+                              .filter(n => !noteSearchQuery.trim() || (
+                                (n.title && n.title.toLowerCase().includes(noteSearchQuery.toLowerCase())) ||
+                                (n.text && n.text.toLowerCase().includes(noteSearchQuery.toLowerCase())) ||
+                                (n.quote && n.quote.toLowerCase().includes(noteSearchQuery.toLowerCase())) ||
+                                (n.insight && n.insight.toLowerCase().includes(noteSearchQuery.toLowerCase()))
+                              ))
+                              .map(note => (
+                                <div
+                                  key={note.id}
+                                  className={`p-3.5 border rounded-2xl shadow-sm relative group transition-all ${isLight ? 'bg-white border-slate-200 hover:border-slate-300' : 'bg-black/40 border-white/10 hover:border-white/20'}`}
+                                >
+                                  {/* Note Card Header */}
+                                  <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className={`px-2 py-0.5 rounded-full text-[9px] font-mono uppercase font-bold tracking-wider border ${
+                                        note.category === 'Key Finding' ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' :
+                                        note.category === 'Methodology' ? 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30' :
+                                        note.category === 'Result' ? 'bg-blue-500/15 text-blue-400 border-blue-500/30' :
+                                        note.category === 'Limitation' ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' :
+                                        note.category === 'AI Insight' ? 'bg-purple-500/15 text-purple-400 border-purple-500/30' :
+                                        (isLight ? 'bg-slate-100 text-slate-600 border-slate-200' : 'bg-white/10 text-slate-300 border-white/10')
+                                      }`}>
+                                        {note.category}
+                                      </span>
+
+                                      {/* Clickable Page Badge */}
+                                      <button
+                                        onClick={() => setPageNumber(Number(note.page))}
+                                        className={`px-2 py-0.5 rounded-full text-[9px] font-mono border transition-colors flex items-center gap-1 ${isLight ? 'bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 border-slate-200' : 'bg-white/5 hover:bg-emerald-500/20 text-slate-400 hover:text-emerald-300 border-white/10'}`}
+                                        title={`Jump to Page ${note.page}`}
+                                      >
+                                        <ExternalLink size={9}/> Page {note.page}
+                                      </button>
+                                    </div>
+
+                                    <div className="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition-opacity">
+                                      <button
+                                        onClick={() => {
+                                          const md = `### ${note.title} [p.${note.page}]\n${note.quote ? '> ' + note.quote + '\n\n' : ''}${note.insight ? '**AI Insight:** ' + note.insight + '\n\n' : ''}${note.text || ''}`;
+                                          navigator.clipboard.writeText(md);
+                                          setCopiedNoteId(note.id);
+                                          setTimeout(() => setCopiedNoteId(null), 2000);
+                                        }}
+                                        className="p-1 text-slate-500 hover:text-white"
+                                        title="Copy Markdown"
+                                      >
+                                        {copiedNoteId === note.id ? <Check size={11} className="text-emerald-400"/> : <Copy size={11}/>}
+                                      </button>
+                                      <button
+                                        onClick={() => handleDeletePaperNote(note.id)}
+                                        className="p-1 text-slate-500 hover:text-red-400 transition-colors"
+                                        title="Delete Note"
+                                      >
+                                        <Trash2 size={11}/>
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  <h4 className={`text-xs font-bold mb-1.5 ${isLight ? 'text-slate-900' : 'text-white'}`}>{note.title}</h4>
+
+                                  {/* Quoted Text */}
+                                  {note.quote && (
+                                    <div className={`p-2.5 rounded-xl border mb-2 ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-black/30 border-white/5'}`}>
+                                      <p className={`text-[11px] font-serif italic leading-relaxed border-l-2 pl-2 border-emerald-500 select-text ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                                        "{note.quote}"
+                                      </p>
+                                    </div>
+                                  )}
+
+                                  {/* Cropped Image */}
+                                  {note.image && (
+                                    <div className={`my-2 rounded-xl overflow-hidden border p-1 ${isLight ? 'border-slate-200 bg-slate-50' : 'border-white/10 bg-black/40'}`}>
+                                      <img src={`data:image/jpeg;base64,${note.image}`} alt="Snippet" className="max-h-36 rounded object-contain mx-auto"/>
+                                    </div>
+                                  )}
+
+                                  {/* AI Insight */}
+                                  {note.insight && (
+                                    <div className={`text-[11px] mt-2 border p-2.5 rounded-xl select-text ${isLight ? 'bg-purple-50/80 border-purple-200 text-slate-800' : 'bg-purple-950/20 border-purple-500/20 text-slate-300'}`}>
+                                      <div className="text-[9px] font-mono text-purple-500 uppercase tracking-wider mb-1 flex items-center gap-1 font-bold">
+                                        <Sparkles size={10}/> AI Synthesis
+                                      </div>
+                                      <div className={`prose ${isLight ? 'prose-slate text-slate-800' : 'prose-invert'} max-w-none text-[11px] leading-relaxed`}>
+                                        <ReactMarkdown rehypePlugins={[rehypeKatex]} remarkPlugins={[remarkMath]}>
+                                          {note.insight}
+                                        </ReactMarkdown>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* User Text */}
+                                  {note.text && (
+                                    <div className={`text-xs font-light mt-2 leading-relaxed select-text ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
+                                      <ReactMarkdown rehypePlugins={[rehypeKatex]} remarkPlugins={[remarkMath]}>
+                                        {note.text}
+                                      </ReactMarkdown>
+                                    </div>
+                                  )}
+
+                                  <div className="text-[8px] font-mono text-slate-600 mt-2 text-right">
+                                    {note.createdAt ? note.createdAt.substring(0, 10) : 'Saved'}
+                                  </div>
+                                </div>
+                              ))
+                          )}
                       </div>
                     </div>
                   )}
 
+                  {/* ACADEMIC READING STREAM & BANGLA TRANSLATION TAB */}
                   {activeRightTab === 'audio' && (
-                    <div className="flex flex-col h-full items-center justify-center p-4 space-y-6 select-none">
-                      <div className="relative w-32 h-32 rounded-full border border-white/5 flex items-center justify-center bg-black/40">
-                        {audioState.isPlaying && <div className={`absolute inset-[-2px] rounded-full border-2 border-t-transparent animate-spin ${themeClasses.accentBorder}`}/>}
-                        <Volume2 size={40} className={audioState.isPlaying && !audioState.isPaused ? `${themeClasses.accentText} animate-pulse` : 'text-slate-600'} />
-                      </div>
-                      
-                      <div className="text-center w-full bg-black/20 p-5 rounded-2xl border border-white/5 shadow-md">
-                        <h3 className="text-xs font-bold text-white tracking-widest uppercase font-mono mb-1">Document Speech Engine</h3>
-                        <p className="text-[11px] text-slate-500 mb-4 font-light leading-normal">{audioState.text || "Translates document text directly into speech synthesis streams."}</p>
-                        
-                        <select value={speechLanguage} onChange={e=>setSpeechLanguage(e.target.value)} className="w-full bg-[#0a0a0a] text-xs text-slate-300 border border-white/10 rounded-xl px-3 py-2.5 outline-none font-mono mb-4 cursor-pointer">
-                          <option value="en-US">English</option>
-                          <option value="es-ES">Spanish</option>
-                          <option value="fr-FR">French</option>
-                          <option value="de-DE">German</option>
-                          <option value="ja-JP">Japanese</option>
-                          <option value="zh-CN">Chinese</option>
-                        </select>
-
-                        <div className="w-full bg-black border border-white/5 h-1.5 rounded-full overflow-hidden mb-5">
-                          <div className={`h-full transition-all duration-300 ${themeClasses.accentBg}`} style={{width: `${audioState.progress}%`}}/>
+                    <div className="flex flex-col h-full space-y-4 select-none">
+                      {/* Teleprompter Stream Box */}
+                      <div className="flex-1 bg-black/30 border border-white/10 rounded-2xl p-4 flex flex-col min-h-0">
+                        <div className="flex items-center justify-between mb-3 border-b border-white/5 pb-2">
+                          <div className="flex items-center gap-2">
+                            <Languages size={14} className="text-cyan-400"/>
+                            <span className="text-[10px] font-mono uppercase tracking-widest text-white font-bold">Reading Stream & Translation</span>
+                          </div>
+                          <span className="text-[9px] font-mono text-slate-500">Page {pageNumber}</span>
                         </div>
 
-                        <div className="flex gap-2">
-                          <button onClick={toggleAudio} className={`flex-1 py-3.5 rounded-xl flex items-center justify-center gap-1.5 font-mono uppercase tracking-widest text-[10px] font-bold transition-all border ${audioState.isPlaying ? (audioState.isPaused ? `${themeClasses.accentBg} text-white border-transparent` : 'bg-amber-500/10 text-amber-400 border-amber-500/20') : `${themeClasses.accentBg} text-white border-transparent hover:opacity-90`}`}>
-                            {audioState.isPlaying ? (audioState.isPaused ? <><Play size={12} fill="currentColor" /> Resume</> : <><Pause size={12} fill="currentColor" /> Pause</>) : <><Play size={12} fill="currentColor" /> Start Audio</>}
+                        {/* Translation Controls Bar */}
+                        <div className="flex items-center gap-2 mb-3">
+                          <select
+                            value={speechLanguage}
+                            onChange={e => {
+                              setSpeechLanguage(e.target.value);
+                              setTranslatedStreamText('');
+                            }}
+                            className="bg-[#0e0e0e] text-xs text-slate-300 border border-white/10 rounded-xl px-2.5 py-1.5 outline-none font-mono flex-1 cursor-pointer"
+                          >
+                            <option value="bn-BD">Bengali (বাংলা)</option>
+                            <option value="en-US">English</option>
+                            <option value="es-ES">Spanish (Español)</option>
+                            <option value="fr-FR">French (Français)</option>
+                            <option value="de-DE">German (Deutsch)</option>
+                            <option value="ja-JP">Japanese (日本語)</option>
+                            <option value="zh-CN">Chinese (中文)</option>
+                          </select>
+
+                          <button
+                            onClick={() => handleTranslateCurrentPage(speechLanguage)}
+                            disabled={isTranslating}
+                            className="px-3 py-1.5 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 text-[10px] font-mono uppercase font-bold tracking-wider rounded-xl border border-cyan-500/30 transition-all flex items-center gap-1.5 whitespace-nowrap disabled:opacity-40"
+                          >
+                            {isTranslating ? <RefreshCw size={11} className="animate-spin"/> : <Languages size={11}/>}
+                            Translate Page
                           </button>
+                        </div>
+
+                        {/* Teleprompter Text Display */}
+                        <div className="flex-1 overflow-y-auto custom-scrollbar p-3.5 bg-black/40 rounded-xl border border-white/5 select-text text-xs leading-relaxed text-slate-300 space-y-2">
+                          {translatedStreamText ? (
+                            <div>
+                              <div className="text-[9px] font-mono text-cyan-400 uppercase tracking-widest mb-1.5 font-bold flex items-center justify-between">
+                                <span>Translated Stream ({speechLanguage === 'bn-BD' ? 'বাংলা' : speechLanguage})</span>
+                                <button
+                                  onClick={() => navigator.clipboard.writeText(translatedStreamText)}
+                                  className="text-slate-500 hover:text-white flex items-center gap-1 normal-case"
+                                >
+                                  <Copy size={10}/> Copy
+                                </button>
+                              </div>
+                              <p className="font-sans leading-relaxed text-emerald-200/90 whitespace-pre-wrap">{translatedStreamText}</p>
+                            </div>
+                          ) : (
+                            <div>
+                              <div className="text-[9px] font-mono text-slate-500 uppercase tracking-widest mb-1.5">
+                                Original Page Stream (p.{pageNumber})
+                              </div>
+                              <p className="font-light leading-relaxed whitespace-pre-wrap">
+                                {paperData?.stateData?.paperMemory?.[pageNumber.toString()] || "No text available on current page."}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Live Audio Progress Bar */}
+                        <div className="mt-3 w-full bg-black border border-white/5 h-1.5 rounded-full overflow-hidden">
+                          <div className={`h-full transition-all duration-300 ${themeClasses.accentBg}`} style={{ width: `${audioState.progress}%` }}/>
+                        </div>
+                      </div>
+
+                      {/* Playback Controls Card */}
+                      <div className="bg-black/30 border border-white/10 rounded-2xl p-3.5 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={toggleAudio}
+                            className={`px-4 py-2.5 rounded-xl font-mono uppercase tracking-wider text-[10px] font-bold flex items-center gap-1.5 transition-all ${
+                              audioState.isPlaying
+                                ? (audioState.isPaused ? `${themeClasses.accentBg} text-white` : 'bg-amber-500/20 text-amber-400 border border-amber-500/30')
+                                : `${themeClasses.accentBg} text-white hover:opacity-90`
+                            }`}
+                          >
+                            {audioState.isPlaying ? (audioState.isPaused ? <><Play size={12} fill="currentColor"/> Resume</> : <><Pause size={12} fill="currentColor"/> Pause</>) : <><Play size={12} fill="currentColor"/> Start Audio</>}
+                          </button>
+
                           {audioState.isPlaying && (
-                            <button onClick={stopAudio} className="px-4 py-3.5 rounded-xl flex items-center justify-center gap-1.5 font-mono uppercase tracking-widest text-[10px] font-bold transition-all border bg-red-500/10 text-red-400 border-red-500/20 hover:bg-red-500/20">
-                              <Square size={12} fill="currentColor" /> Stop
+                            <button onClick={stopAudio} className="px-3 py-2.5 rounded-xl font-mono text-[10px] uppercase tracking-wider bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-all flex items-center gap-1">
+                              <Square size={12} fill="currentColor"/> Stop
                             </button>
                           )}
+                        </div>
+
+                        <div className="flex items-center gap-1 font-mono text-[10px] text-slate-400">
+                          <span className="text-[9px] uppercase tracking-widest text-slate-500">Speed:</span>
+                          {[0.8, 1.0, 1.2].map(speed => (
+                            <button
+                              key={speed}
+                              onClick={() => setSpeechRate(speed)}
+                              className={`px-2 py-1 rounded border text-[9px] ${speechRate === speed ? 'bg-white/10 border-white/20 text-white font-bold' : 'border-transparent text-slate-500 hover:text-white'}`}
+                            >
+                              {speed}x
+                            </button>
+                          ))}
                         </div>
                       </div>
                     </div>
                   )}
                 </div>
 
+                {/* Copilot Chat Input Form */}
                 {activeRightTab === 'copilot' && (
                   <div className={`p-3 border-t flex-shrink-0 ${isLight ? 'border-slate-200 bg-white/50' : 'border-white/10 bg-black/40'}`}>
                     <form onSubmit={handleChatSubmit} className="flex flex-col gap-2">
                       <div className="flex items-center bg-black/20 border border-white/10 rounded-xl p-1 focus-within:border-white/30 transition-colors shadow-inner">
-                        <Search size={14} className="text-slate-600 ml-2.5" />
+                        <Search size={14} className="text-slate-600 ml-2.5 shrink-0" />
                         <input 
-                          type="text" value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder="Query document contents..."
-                          className="flex-grow bg-transparent text-xs text-white px-3 py-2 outline-none font-sans" disabled={isAgentTyping}
+                          type="text" 
+                          value={chatInput} 
+                          onChange={(e) => setChatInput(e.target.value)} 
+                          placeholder={activeSelectionText ? "Ask about targeted excerpt..." : "Ask document questions (cites exact pages)..."}
+                          className="flex-grow bg-transparent text-xs text-white px-3 py-2 outline-none font-sans" 
+                          disabled={isAgentTyping}
                         />
                         <button type="submit" disabled={!chatInput.trim()} className={`p-2 rounded-lg text-white transition-all disabled:opacity-20 ${themeClasses.accentBg}`}>
                           <Send size={12} />

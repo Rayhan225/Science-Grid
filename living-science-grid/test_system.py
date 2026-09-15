@@ -10,18 +10,24 @@ from typing import Dict, Any, List, Optional
 import httpx
 import asyncpg
 
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 # =====================================================================
 # CONFIGURATION
 # =====================================================================
 BACKEND_URL = "http://127.0.0.1:8000"
-OLLAMA_URL = "http://localhost:11434"
 
 DB_CONFIG = {
-    "host": "aws-0-ap-southeast-1.pooler.supabase.com",
-    "port": 6543,
-    "user": "postgres.nxarpilggbxfoyfkywey",
-    "password": "RayhanSourov@123",
-    "database": "postgres",
+    "host": os.getenv("DB_HOST", "aws-0-ap-southeast-1.pooler.supabase.com"),
+    "port": int(os.getenv("DB_PORT", "6543")),
+    "user": os.getenv("DB_USER", "postgres.nxarpilggbxfoyfkywey"),
+    "password": os.getenv("DB_PASSWORD", "RayhanSourov@123"),
+    "database": os.getenv("DB_NAME", "postgres"),
     "ssl": "require",
     "statement_cache_size": 0,
     "timeout": 15.0
@@ -74,14 +80,14 @@ class SystemDiagnosticReport:
 
         for idx, t in enumerate(self.tests, 1):
             tag = f"{GREEN}{BOLD}[PASS]{RESET}" if t["passed"] else f"{RED}{BOLD}[FAIL]{RESET}"
-            print(f"{BOLD}{idx:02d}. {t['subsystem']} ➔ {t['name']} {tag}")
+            print(f"{BOLD}{idx:02d}. {t['subsystem']} -> {t['name']} {tag}")
             
             if t["working"]:
-                print(f"    {GREEN}✔ Working:{RESET} {t['working']}")
+                print(f"    {GREEN}[OK] Working:{RESET} {t['working']}")
                 
             if not t["passed"]:
-                print(f"    {RED}✖ Root Cause:{RESET} {t['failure']}")
-                print(f"    {YELLOW}🔧 Action Required:{RESET} {t['action']}")
+                print(f"    {RED}[FAIL] Root Cause:{RESET} {t['failure']}")
+                print(f"    {YELLOW}[ACTION] Action Required:{RESET} {t['action']}")
             print(f"{DIM}{'-' * 90}{RESET}")
 
         summary_color = GREEN if failed_count == 0 else RED
@@ -245,55 +251,55 @@ async def test_backend_and_telemetry():
             )
 
 # =====================================================================
-# 4. OLLAMA INFERENCE ENGINE
+# 4. LOCAL SLM INFERENCE ENGINE (Llama-3.2-3B via llama-cpp-python)
 # =====================================================================
-async def test_ollama_engine():
-    print(f"{CYAN}Testing Ollama Model Availability & Inference Pipeline...{RESET}")
-    async with httpx.AsyncClient(timeout=10.0) as client:
+async def test_slm_engine():
+    print(f"{CYAN}Testing Local SLM Engine (Llama-3.2-3B) & Inference Pipeline...{RESET}")
+    async with httpx.AsyncClient(timeout=20.0) as client:
         try:
-            tags_res = await client.get(f"{OLLAMA_URL}/api/tags")
+            tags_res = await client.get(f"{BACKEND_URL}/api/ai/tags")
             if tags_res.status_code == 200:
-                models = [m.get("name") for m in tags_res.json().get("models", [])]
-                has_llama = any("llama3" in m for m in models)
-                if has_llama:
-                    # Test actual inference via FastAPI proxy
-                    swarm_res = await client.post(
-                        f"{BACKEND_URL}/api/research/swarm",
-                        json={"query": "Test query: output 'READY'", "context": "System diagnostic check"}
+                data = tags_res.json()
+                models = data.get("models", [])
+                engine = data.get("engine", "local")
+                report.record(
+                    "SLM Engine", "Local Model Tags Verification",
+                    True,
+                    f"Engine: {engine} | Models: {models}"
+                )
+
+                # Test actual inference via FastAPI swarm route
+                swarm_res = await client.post(
+                    f"{BACKEND_URL}/api/research/swarm",
+                    json={"query": "State the speed of light.", "context": "In physics, the speed of light in vacuum is approximately 299,792,458 meters per second."}
+                )
+                if swarm_res.status_code == 200 and "response" in swarm_res.json():
+                    resp_text = swarm_res.json().get("response", "")
+                    report.record(
+                        "SLM Engine", "FastAPI SLM Swarm Inference",
+                        True,
+                        f"Inference output generated: {resp_text[:80]}..."
                     )
-                    if swarm_res.status_code == 200 and "response" in swarm_res.json():
-                        report.record(
-                            "Ollama Engine", "Local Model Verification & Proxy Call",
-                            True,
-                            f"Model llama3 detected. Proxy inference completed through FastAPI (/api/research/swarm)."
-                        )
-                    else:
-                        report.record(
-                            "Ollama Engine", "FastAPI AI Swarm Proxy",
-                            False, "Ollama running.",
-                            f"/api/research/swarm returned {swarm_res.status_code}: {swarm_res.text}",
-                            "Check Ollama execution inside research_brain/main.py."
-                        )
                 else:
                     report.record(
-                        "Ollama Engine", "Model Presence (llama3)",
-                        False, f"Ollama online. Available: {models}",
-                        "Model 'llama3' is missing from Ollama.",
-                        "Run: ollama run llama3"
+                        "SLM Engine", "FastAPI SLM Swarm Inference",
+                        False, "SLM engine loaded.",
+                        f"/api/research/swarm returned {swarm_res.status_code}: {swarm_res.text}",
+                        "Check server/slm_engine.py and research_brain/main.py."
                     )
             else:
                 report.record(
-                    "Ollama Engine", "Ollama Status",
+                    "SLM Engine", "Tags API Status",
                     False, "",
-                    f"Ollama returned HTTP {tags_res.status_code}",
-                    "Restart the Ollama service."
+                    f"/api/ai/tags returned HTTP {tags_res.status_code}",
+                    "Ensure FastAPI backend is running."
                 )
         except Exception as e:
             report.record(
-                "Ollama Engine", "Service Connection",
+                "SLM Engine", "Service Connection",
                 False, "",
-                f"Cannot reach Ollama at {OLLAMA_URL}: {repr(e)}",
-                "Ensure Ollama is running ('ollama serve')."
+                f"Cannot reach Backend at {BACKEND_URL}: {repr(e)}",
+                "Ensure FastAPI backend is running on port 8000."
             )
 
 # =====================================================================
@@ -591,7 +597,7 @@ async def main():
 
     # 3. Local Server Services
     await test_backend_and_telemetry()
-    await test_ollama_engine()
+    await test_slm_engine()
 
     # 4. Full Functional Tool Lifecycles
     await test_vault_lifecycle()

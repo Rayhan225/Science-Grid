@@ -11,7 +11,7 @@ export default function Settings({ settings, setSettings }) {
   const { theme, setTheme, themeClasses, isLight } = useTheme();
   const [activeTab, setActiveTab] = useState('general');
   const [saveStatus, setSaveStatus] = useState(false);
-  const [models, setModels] = useState(['llama3']);
+  const [models, setModels] = useState(['llama-3.2-3b-instruct-q5km']);
   const [backendStatus, setBackendStatus] = useState('Checking...');
 
   const [localSettings, setLocalSettings] = useState({
@@ -25,8 +25,8 @@ export default function Settings({ settings, setSettings }) {
       const res = await fetch(`${BACKEND_URL}/api/ai/tags`);
       if (res.ok) {
         const data = await res.json();
-        setModels(data.models || ['llama3']);
-        setBackendStatus('Connected (Supabase & Ollama Online)');
+        setModels(data.models || ['llama-3.2-3b-instruct-q5km']);
+        setBackendStatus('Connected (Supabase & Local SLM Online)');
       } else {
         setBackendStatus('Degraded Backend');
       }
@@ -155,7 +155,7 @@ export default function Settings({ settings, setSettings }) {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {[
                     { id: 'cloud-fast', name: 'Cloud Fast API', desc: 'Offloads LLM inference to lightning-fast cloud endpoints. Best for standard devices.' },
-                    { id: 'local-llama', name: 'Local Ollama Node', desc: 'Routes all prompts to port 8000 proxy. Requires running Ollama. 100% offline & secure.' }
+                    { id: 'local-slm', name: 'Local SLM Engine (Llama-3.2-3B)', desc: 'Routes prompts to local llama-cpp-python on CPU with deterministic greedy decoding. 100% offline & zero disk I/O.' }
                   ].map(eng => (
                     <button
                       key={eng.id}

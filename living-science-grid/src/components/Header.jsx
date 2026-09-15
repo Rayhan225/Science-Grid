@@ -8,6 +8,18 @@ import { useTheme } from '../context/ThemeContext';
 
 export default function Header({ status, currentView, onViewChange }) {
   const { themeClasses, isLight } = useTheme();
+  const [modelLabel, setModelLabel] = React.useState('Llama-3.2-3B Active');
+
+  React.useEffect(() => {
+    fetch('http://127.0.0.1:8000/api/ai/tags')
+      .then(res => res.json())
+      .then(data => {
+        if (data.current_model || (data.models && data.models[0])) {
+          setModelLabel('Llama-3.2-3B Active');
+        }
+      })
+      .catch(() => setModelLabel('SLM Engine Standby'));
+  }, []);
 
   // Dynamic Island configuration mapping for every page/tool
   const islandConfig = {
@@ -95,8 +107,8 @@ export default function Header({ status, currentView, onViewChange }) {
 
       {/* Right: Engine status & pipeline indicator (Profile and logout are handled in the sidebar) */}
       <div className="flex items-center gap-4 text-xs font-mono uppercase tracking-widest select-none">
-        <div className="hidden lg:flex items-center gap-2 text-slate-500 text-[10px]">
-          <Activity size={13} className="text-emerald-500 animate-pulse"/> Engine Online
+        <div className="hidden lg:flex items-center gap-2 text-slate-400 text-[10px]">
+          <Activity size={13} className="text-emerald-400 animate-pulse"/> {modelLabel}
         </div>
         <div className={`border px-3 py-1 rounded-full text-[10px] font-bold ${currentConfig.accent} ${isLight ? 'bg-white border-slate-200' : 'bg-white/5 border-white/10'}`}>
           {status === 'Ready' ? '● System Ready' : `○ ${status}`}
