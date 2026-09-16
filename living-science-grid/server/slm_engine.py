@@ -56,9 +56,9 @@ def get_model():
 
 
 def format_llama3_prompt(system_prompt: str, user_prompt: str) -> str:
-    """Build a strict Llama-3 instruction-template string."""
+    """Build a strict Llama-3 instruction-template string including BOS."""
     return (
-        "<|start_header_id|>system<|end_header_id|>\n\n"
+        "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n"
         f"{system_prompt}<|eot_id|>"
         "<|start_header_id|>user<|end_header_id|>\n\n"
         f"{user_prompt}<|eot_id|>"
@@ -68,28 +68,28 @@ def format_llama3_prompt(system_prompt: str, user_prompt: str) -> str:
 
 def generate(
     prompt: str,
-    system_prompt: str = "You are a precise academic research assistant. Be concise and technical.",
-    max_tokens: int = 512,
+    system_prompt: str = "You are an elite academic research assistant. Analyze step-by-step.",
+    max_tokens: int = 800,
     force_json: bool = False,
 ) -> str:
     """
-    Generate text with deterministic greedy decoding.
-    temperature=0.0  →  fully reproducible output.
-    top_k=1          →  always pick the highest-probability token.
+    Generate text using Llama-3 3B fine-tuned model settings.
+    Slightly higher temperature and top_p for better Chain-of-Thought reasoning.
     """
     llm = get_model()
 
     if force_json:
         system_prompt += (
-            "\nYou MUST respond with valid JSON only. "
-            "No markdown fences, no explanation outside the JSON object."
+            "\nOutput ONLY valid JSON. "
+            "No markdown fences (like ```json), no explanation, just the raw JSON object/array."
         )
 
     formatted = format_llama3_prompt(system_prompt, prompt)
 
     with _inference_lock:
+        # Context window maximization (limit to ~4000 tokens including response)
         tokens = llm.tokenize(formatted.encode("utf-8"))
-        max_allowed = 4096 - max_tokens - 32
+        max_allowed = 4096 - max_tokens - 100
         if len(tokens) > max_allowed:
             tokens = tokens[:max_allowed]
             formatted = llm.detokenize(tokens).decode("utf-8", errors="ignore")
@@ -97,10 +97,10 @@ def generate(
         result = llm(
             formatted,
             max_tokens=max_tokens,
-            temperature=0.0,
-            top_k=1,
-            top_p=1.0,
-            repeat_penalty=1.0,
+            temperature=0.15,
+            top_k=40,
+            top_p=0.9,
+            repeat_penalty=1.1,
             stop=["<|eot_id|>", "<|end_of_text|>"],
             echo=False,
         )
