@@ -67,3 +67,18 @@ The system currently "fakes" AI functionality in several key areas. For example:
 ## Execution Directives for Gemini (Continued)
 5.  **Implement Memory Store:** Create a mechanism (using PostgreSQL JSONB and pgvector) to store and retrieve user-specific historical context, preferences, and paper summaries.
 6.  **Modify Chat Endpoints:** Update endpoints like `/api/research/chat` and `/api/research/matrix` to inject this retrieved user memory alongside the paper RAG context.
+
+### 5. Enforce Academic Rigor and Enterprise-Grade Stability
+**Goal:** This is a high-grade, authentic research reviewing platform. Underhanded shortcuts, "faked" AI responses, silent failures, and bug-prone heuristics are entirely unacceptable. The system must be robust, scientifically accurate, and completely transparent in its AI reasoning.
+
+**Actions:**
+*   **Eradicate Heuristic Fallbacks:** Remove all instances where the code falls back to hardcoded strings, regex pattern matching, or generic templates if the AI fails or times out. The AI must perform the actual work.
+*   **Strict Error Handling:** Do not use empty `except Exception: pass` blocks (as seen heavily throughout `main.py`). If the LLM generation fails or the vector retrieval fails, return a proper, informative `500 Internal Server Error` or a clear JSON error payload to the frontend. Silent failures compromise academic integrity.
+*   **Hallucination Prevention:** In the RAG pipeline, explicitly instruct the LLM in the `system_prompt` to strictly base its answers *only* on the provided context chunks. If the answer is not in the text, the LLM must explicitly state that the document does not contain the information.
+*   **Auditability:** Every AI-generated response, summary, or math evaluation must be logged with the context chunks that were used to generate it. This ensures that users (researchers) can verify exactly which parts of the paper the AI used to form its conclusions.
+*   **Robust JSON Parsing:** When requiring JSON from the LLM (e.g., in `execute_rigor_audit` or `analyze_math_equation`), use robust schema validation (like Pydantic) to ensure the LLM's output exactly matches the expected structure. Reject and retry malformed JSON instead of silently returning empty/default objects.
+
+## Execution Directives for Gemini (Continued)
+7.  **Remove Silent Failures:** Audit `main.py` and remove all `try/except: pass` blocks related to LLM generation, PDF parsing, and database transactions. Implement proper error logging and HTTP exception raising.
+8.  **Strict Context Constraints:** Update all LLM prompts to explicitly prohibit hallucinations and enforce strict reliance on the retrieved context.
+9.  **Implement Validation:** Wrap all LLM JSON generation in a Pydantic validation flow with automated retry logic to ensure system stability and predictable output structures.
