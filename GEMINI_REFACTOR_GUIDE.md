@@ -82,3 +82,16 @@ The system currently "fakes" AI functionality in several key areas. For example:
 7.  **Remove Silent Failures:** Audit `main.py` and remove all `try/except: pass` blocks related to LLM generation, PDF parsing, and database transactions. Implement proper error logging and HTTP exception raising.
 8.  **Strict Context Constraints:** Update all LLM prompts to explicitly prohibit hallucinations and enforce strict reliance on the retrieved context.
 9.  **Implement Validation:** Wrap all LLM JSON generation in a Pydantic validation flow with automated retry logic to ensure system stability and predictable output structures.
+
+### 6. Optimize the Llama 3.2 3B Instruct Model
+**Goal:** The system already includes a fine-tuned LLM located at `living-science-grid/models/llama-3.2-3b-instruct.Q5_K_M.gguf`. This model is specifically capable of advanced reasoning. The integration must be perfectly tailored to this architecture.
+
+**Actions:**
+*   **Precise Llama-3 Formatting:** In `slm_engine.py` (Line ~44), ensure the `format_llama3_prompt` strictly adheres to the official Llama-3 instruction template (`<|start_header_id|>system<|end_header_id|>` ... `<|eot_id|>`). Any deviation will severely degrade the model's reasoning capabilities.
+*   **Reasoning Exploitation:** When drafting prompts for `main.py`, instruct the model to "think step-by-step" or "analyze the context before answering" (Chain-of-Thought). This dramatically improves the output quality of the 3B model for complex tasks like the Scholar Audit or Math Evaluator.
+*   **Context Window Maximization:** The model operates natively with a 4096-token context window (set in `slm_engine.py` Line ~37). Gemini must configure the RAG retrieval step to fetch precisely enough chunks to fill ~3000 tokens of context, leaving ~1000 tokens for the generated response.
+*   **Decoding Strategy:** Ensure `slm_engine.py` is configured for deterministic, analytical outputs. For academic research generation, temperature should remain low (e.g., 0.1 - 0.2), and `top_p` should be adjusted to prevent hallucinations while allowing the model's fine-tuned knowledge to surface.
+
+## Execution Directives for Gemini (Final)
+10. **Llama-3 Integration:** Audit `slm_engine.py` to guarantee 100% compliance with Llama-3 prompt formatting.
+11. **Chain-of-Thought Prompts:** Rewrite the AI interaction prompts in `main.py` to specifically leverage the reasoning capabilities of the `llama-3.2-3b-instruct.Q5_K_M.gguf` model.
