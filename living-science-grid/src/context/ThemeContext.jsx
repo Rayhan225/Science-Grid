@@ -116,20 +116,62 @@ export const THEME_REGISTRY = {
   radius: 'rounded-[2.5rem]',
   previewColors: ['bg-[#050014]', 'bg-[#1a0b2e]', 'bg-fuchsia-400']
 },
-'solar-flare': {
-  name: 'Solar Flare',
-  type: 'dark',
-  bgMain: 'bg-gradient-to-br from-[#2a0800] via-[#1a0500] to-[#000000] text-orange-50 font-sans',
-  bgPattern: 'bg-[linear-gradient(to_right,#ff8a000a_1px,transparent_1px),linear-gradient(to_bottom,#ff8a000a_1px,transparent_1px)] bg-[size:24px_24px]',
-  bgCard: 'bg-[#1a0500]/60 border-t border-l border-orange-500/30 text-white shadow-2xl rounded-tr-3xl rounded-bl-3xl rounded-tl-sm rounded-br-sm backdrop-blur-lg',
-  bgSidebar: 'bg-[#000000] border-r border-orange-500/20',
-  bgHeader: 'bg-[#000000]/90 border-b border-orange-500/20',
-  accentText: 'text-orange-400',
-  accentBorder: 'border-orange-500',
-  accentBg: 'bg-gradient-to-r from-orange-500 to-red-500',
-  radius: 'rounded-tr-3xl rounded-bl-3xl rounded-tl-sm rounded-br-sm',
-  previewColors: ['bg-[#1a0500]', 'bg-orange-500', 'bg-red-500']
-}
+  'solar-flare': {
+    name: 'Solar Flare',
+    type: 'dark',
+    bgMain: 'bg-gradient-to-br from-[#2a0800] via-[#1a0500] to-[#000000] text-orange-50 font-sans',
+    bgPattern: 'bg-[linear-gradient(to_right,#ff8a000a_1px,transparent_1px),linear-gradient(to_bottom,#ff8a000a_1px,transparent_1px)] bg-[size:24px_24px]',
+    bgCard: 'bg-[#1a0500]/60 border-t border-l border-orange-500/30 text-white shadow-2xl rounded-tr-3xl rounded-bl-3xl rounded-tl-sm rounded-br-sm backdrop-blur-lg',
+    bgSidebar: 'bg-[#000000] border-r border-orange-500/20',
+    bgHeader: 'bg-[#000000]/90 border-b border-orange-500/20',
+    accentText: 'text-orange-400',
+    accentBorder: 'border-orange-500',
+    accentBg: 'bg-gradient-to-r from-orange-500 to-red-500',
+    radius: 'rounded-tr-3xl rounded-bl-3xl rounded-tl-sm rounded-br-sm',
+    previewColors: ['bg-[#1a0500]', 'bg-orange-500', 'bg-red-500']
+  },
+  'emerald-solitude': {
+    name: 'Emerald Solitude (Boreal Alpine)',
+    type: 'dark',
+    bgMain: 'bg-gradient-to-br from-[#01140e] via-[#04241a] to-[#010e0a] text-emerald-100 font-sans',
+    bgPattern: 'bg-[radial-gradient(#10b98115_1px,transparent_1px)] bg-[size:24px_24px]',
+    bgCard: 'bg-[#031d15]/80 border border-emerald-500/25 text-emerald-50 shadow-[0_12px_40px_rgba(2,38,28,0.4)] backdrop-blur-2xl rounded-2xl',
+    bgSidebar: 'bg-[#02130e]/95 border-r border-emerald-500/20 backdrop-blur-2xl',
+    bgHeader: 'bg-[#02130e]/90 border-b border-emerald-500/20 backdrop-blur-xl',
+    accentText: 'text-emerald-300 font-bold',
+    accentBorder: 'border-emerald-400/50',
+    accentBg: 'bg-emerald-500 text-slate-950 font-bold',
+    radius: 'rounded-2xl',
+    previewColors: ['bg-[#02130e]', 'bg-[#04241a]', 'bg-emerald-400']
+  },
+  'cyber-monolith': {
+    name: 'Cyber Monolith (Platinum Carbon)',
+    type: 'dark',
+    bgMain: 'bg-[#08090c] text-zinc-200 font-mono',
+    bgPattern: 'bg-[linear-gradient(to_right,#ffffff08_1px,transparent_1px),linear-gradient(to_bottom,#ffffff08_1px,transparent_1px)] bg-[size:32px_32px]',
+    bgCard: 'bg-[#0e1015]/95 border border-zinc-500/30 text-zinc-100 shadow-[0_8px_32px_rgba(0,0,0,0.6)] backdrop-blur-md rounded-xl',
+    bgSidebar: 'bg-[#0a0b0e] border-r border-zinc-500/30',
+    bgHeader: 'bg-[#0a0b0e]/95 border-b border-zinc-500/30 backdrop-blur-xl',
+    accentText: 'text-zinc-100 font-bold tracking-wider',
+    accentBorder: 'border-zinc-300',
+    accentBg: 'bg-zinc-100 text-black font-bold',
+    radius: 'rounded-xl',
+    previewColors: ['bg-[#08090c]', 'bg-[#0e1015]', 'bg-zinc-200']
+  },
+  'aurora-borealis': {
+    name: 'Aurora Borealis (Arctic Celestial)',
+    type: 'dark',
+    bgMain: 'bg-gradient-to-br from-[#030717] via-[#07132f] to-[#01040d] text-teal-50 font-sans',
+    bgPattern: 'bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-cyan-900/20 via-transparent to-transparent',
+    bgCard: 'bg-[#07122a]/70 border border-teal-500/30 text-white shadow-[0_16px_50px_rgba(13,148,136,0.15)] backdrop-blur-2xl rounded-3xl',
+    bgSidebar: 'bg-[#030919]/90 border-r border-teal-500/20 backdrop-blur-2xl',
+    bgHeader: 'bg-[#030919]/85 border-b border-teal-500/20 backdrop-blur-xl',
+    accentText: 'text-cyan-300 font-bold',
+    accentBorder: 'border-cyan-400/60',
+    accentBg: 'bg-gradient-to-r from-teal-400 to-indigo-500 text-slate-950 font-bold',
+    radius: 'rounded-3xl',
+    previewColors: ['bg-[#030919]', 'bg-[#07132f]', 'bg-cyan-400']
+  }
 };
 
 export function ThemeProvider({ children, theme, setTheme }) {

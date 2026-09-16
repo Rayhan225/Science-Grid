@@ -14,6 +14,24 @@ export function sanitizeDocument(text) {
 }
 
 /**
+ * Sanitizes Unicode mathematical characters that trigger KaTeX strict-mode warnings
+ * (e.g. '∆' U+2206 to \Delta, 'Ω' U+2126 to \Omega).
+ */
+export function sanitizeKatexString(text) {
+  if (!text || typeof text !== 'string') return text || '';
+  return text
+    .replace(/[\u2206∆]/g, '\\Delta ')
+    .replace(/[\u2126Ω]/g, '\\Omega ')
+    .replace(/[\u2207∇]/g, '\\nabla ')
+    .replace(/[\u2211∑]/g, '\\sum ')
+    .replace(/[\u220F∏]/g, '\\prod ')
+    .replace(/[\u2248≈]/g, '\\approx ')
+    .replace(/[\u2260≠]/g, '\\neq ')
+    .replace(/[\u2264≤]/g, '\\le ')
+    .replace(/[\u2265≥]/g, '\\ge ');
+}
+
+/**
  * Safely parses and auto-repairs truncated or malformed JSON output from LLM swarm calls.
  */
 function extractValidJSON(rawText) {

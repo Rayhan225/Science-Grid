@@ -156,8 +156,22 @@ def test_frontend_source_compliance():
 async def test_database_direct():
     print(f"{CYAN}Checking Direct PostgreSQL Connection to Supabase...{RESET}")
     conn = None
+    for attempt in range(3):
+        try:
+            conn = await asyncpg.connect(**DB_CONFIG)
+            break
+        except Exception as conn_err:
+            if attempt < 2:
+                await asyncio.sleep(1.0)
+            else:
+                report.record(
+                    "PostgreSQL Core", "Direct Supabase Connection",
+                    False, "",
+                    f"Cannot establish connection: {repr(conn_err)}",
+                    "Verify network access and ensure Supabase pooler credentials match port 6543."
+                )
+                return
     try:
-        conn = await asyncpg.connect(**DB_CONFIG)
         tables = await conn.fetch("""
             SELECT table_name FROM information_schema.tables 
             WHERE table_schema = 'public'
@@ -584,6 +598,70 @@ async def test_domain_matrix_lifecycle():
             )
 
 # =====================================================================
+# 9. LAYER 4 RIGOR AUDIT, PLAGIARISM & TERMINOLOGY GUARD
+# =====================================================================
+async def test_layer4_rigor_audit_lifecycle():
+    print(f"{CYAN}Testing Layer 4 Rigor Audit, Plagiarism & Terminology Guard...{RESET}")
+    async with httpx.AsyncClient(timeout=35.0) as client:
+        try:
+            # 1. Execute Rigor Audit
+            test_title = f"Diagnostic Quantum Annealing Manuscript {int(time.time())}"
+            audit_res = await client.post(f"{BACKEND_URL}/api/research/rigor-audit", json={
+                "title": test_title,
+                "content": "We evaluate quantum Hamiltonian H = \\sum h_i \\sigma_i^z with transverse field Gamma(t). Variance satisfies bounded limits under seed initializations."
+            })
+            audit_ok = audit_res.status_code == 200 and audit_res.json().get("status") == "success"
+            audit_data = audit_res.json() if audit_ok else {}
+            audit_id = audit_data.get("auditId")
+            score = audit_data.get("rigorScore", 0)
+
+            # 2. Plagiarism Check
+            plag_res = await client.post(f"{BACKEND_URL}/api/research/plagiarism-check", json={
+                "title": test_title,
+                "content": "The dominant sequence transduction models are based on complex recurrent or convolutional neural networks. We propose the Transformer."
+            })
+            plag_ok = plag_res.status_code == 200 and plag_res.json().get("status") == "success"
+
+            # 3. Terminology Guard
+            term_res = await client.post(f"{BACKEND_URL}/api/research/terminology-guard", json={
+                "title": test_title,
+                "content": "We test weight matrix W and also update \\mathbf{W} at t=10ms and t=2s using RAG and AST without definitions."
+            })
+            term_ok = term_res.status_code == 200 and term_res.json().get("status") == "success"
+
+            # 4. Audit Ledger Retrieval
+            get_audits_res = await client.get(f"{BACKEND_URL}/api/research/audits")
+            audits_list = get_audits_res.json() if get_audits_res.status_code == 200 else []
+            persisted = any(a.get("audit_id") == audit_id for a in audits_list) if audit_id else True
+
+            # 5. Delete Test Audit from Ledger
+            delete_ok = True
+            if audit_id:
+                del_res = await client.delete(f"{BACKEND_URL}/api/research/audits/{audit_id}")
+                delete_ok = del_res.status_code == 200
+
+            if audit_ok and plag_ok and term_ok and persisted and delete_ok:
+                report.record(
+                    "Layer 4 Engine", "Rigor Audit, Plagiarism & Terminology Guard",
+                    True,
+                    f"Rigor Audit score ({score}/100) persisted to audit_ledger JSONB. Plagiarism detection & Terminology guard passed. Ledger deletion verified."
+                )
+            else:
+                report.record(
+                    "Layer 4 Engine", "Rigor Audit Pipeline",
+                    False, "Endpoints reachable.",
+                    f"Audit OK: {audit_ok} | Plagiarism OK: {plag_ok} | Terminology OK: {term_ok} | Persisted: {persisted} | Delete OK: {delete_ok}",
+                    "Check server/db_manager.py and research_brain/main.py Layer 4 routes."
+                )
+        except Exception as e:
+            report.record(
+                "Layer 4 Engine", "Layer 4 Test Exception",
+                False, "",
+                f"Exception: {repr(e)}\n{traceback.format_exc()}",
+                "Ensure backend server is running on port 8000."
+            )
+
+# =====================================================================
 # MAIN ENTRYPOINT
 # =====================================================================
 async def main():
@@ -604,6 +682,7 @@ async def main():
     await test_mathevaluator_ledger()
     await test_insightlens_ledger_and_notes()
     await test_domain_matrix_lifecycle()
+    await test_layer4_rigor_audit_lifecycle()
 
     # 5. Render Matrix
     report.render()

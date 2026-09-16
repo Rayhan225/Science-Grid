@@ -1,30 +1,70 @@
 // src/components/Sidebar.jsx
-import React, { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   Sliders, Database, Settings, LayoutDashboard, 
-  BookOpen, GitCompare, Undo2, TerminalSquare, User, ChevronDown, ChevronUp 
+  BookOpen, GitCompare, Undo2, TerminalSquare, User, ChevronDown, ChevronUp, ShieldCheck
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 
+const AVATAR_GRADIENT_MAP = {
+  cyan: 'from-cyan-500 to-blue-600',
+  purple: 'from-purple-500 to-indigo-600',
+  emerald: 'from-emerald-500 to-teal-600',
+  amber: 'from-amber-500 to-rose-600'
+};
+
 export default function Sidebar({ currentView, onViewChange, currentUser }) {
-  const { themeClasses, isLight } = useTheme();
+  const { isLight } = useTheme();
   const [isWorkspaceExpanded, setIsWorkspaceExpanded] = useState(true);
+  const [avatarPreset, setAvatarPreset] = useState('cyan');
+
+  // Load avatar preset from DB profile on mount and when user changes
+  useEffect(() => {
+    const loadAvatarPreset = async () => {
+      if (!currentUser?.id) return;
+      try {
+        const res = await fetch(`http://127.0.0.1:8000/api/user/profile?user_id=${encodeURIComponent(currentUser.id)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.avatar_preset) {
+            setAvatarPreset(data.avatar_preset);
+          }
+        }
+      } catch {}
+    };
+    loadAvatarPreset();
+
+    // Also listen for profile save events to update avatar in real time
+    const handleProfileUpdate = () => {
+      try {
+        const stored = JSON.parse(localStorage.getItem('sg_current_user') || '{}');
+        if (stored.avatar_preset) setAvatarPreset(stored.avatar_preset);
+      } catch {}
+    };
+    window.addEventListener('userRoleUpdated', handleProfileUpdate);
+    window.addEventListener('storage', handleProfileUpdate);
+    return () => {
+      window.removeEventListener('userRoleUpdated', handleProfileUpdate);
+      window.removeEventListener('storage', handleProfileUpdate);
+    };
+  }, [currentUser?.id]);
+
+  const avatarGradient = AVATAR_GRADIENT_MAP[avatarPreset] || AVATAR_GRADIENT_MAP.cyan;
 
   const primaryRoutes = [
     { id: 'dashboard', label: 'Command Matrix', icon: LayoutDashboard, color: 'text-cyan-400', glow: 'bg-cyan-500/15 border-cyan-500/40 text-cyan-400 font-bold' },
     { id: 'math-evaluator', label: 'Math Evaluator', icon: Sliders, color: 'text-cyan-400', glow: 'bg-cyan-500/15 border-cyan-500/40 text-cyan-400 font-bold' },
     { id: 'insight-lens', label: 'InsightLens Reader', icon: BookOpen, color: 'text-emerald-400', glow: 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400 font-bold' }, 
     { id: 'domain-matrix', label: 'DomainMatrix AI', icon: GitCompare, color: 'text-rose-400', glow: 'bg-rose-500/15 border-rose-500/40 text-rose-400 font-bold' },
+    { id: 'validation-rigor', label: 'ScholarAudit', icon: ShieldCheck, color: 'text-teal-400', glow: 'bg-teal-500/15 border-teal-500/40 text-teal-400 font-bold' },
   ];
 
   const administrativeRoutes = [
-    { id: 'profile-settings', label: 'Profile Settings', icon: User, color: 'text-cyan-400', glow: 'bg-cyan-500/15 border-cyan-500/40 text-cyan-400 font-bold' },
     { id: 'central-vault', label: 'Global Vault', icon: Database, color: 'text-purple-400', glow: 'bg-purple-500/15 border-purple-500/40 text-purple-400 font-bold' },
-    { id: 'developer-tools', label: 'Developer Tools', icon: TerminalSquare, color: 'text-orange-400', glow: 'bg-orange-500/15 border-orange-500/40 text-orange-400 font-bold' },
-    { id: 'settings', label: 'Settings', icon: Settings, color: 'text-slate-400', glow: 'bg-white/10 border-white/20 text-white font-bold' },
+    { id: 'settings', label: 'Settings & Profile', icon: Settings, color: 'text-cyan-400', glow: 'bg-cyan-500/15 border-cyan-500/40 text-cyan-400 font-bold' },
   ];
 
-  const renderingIsolatedSidebarMenu = ['central-vault', 'settings', 'developer-tools', 'profile-settings'].includes(currentView);
+  const renderingIsolatedSidebarMenu = ['central-vault', 'settings'].includes(currentView);
 
   const NavItem = ({ route, isActive, onClick }) => {
     const Icon = route.icon;
@@ -56,17 +96,27 @@ export default function Sidebar({ currentView, onViewChange, currentUser }) {
     <aside className="w-full h-full flex flex-col justify-between select-none z-50 bg-transparent overflow-hidden">
       <div className="flex flex-col pt-6 flex-grow overflow-x-hidden">
         
-        {/* User Identity Preview Card (Shows avatar in collapsed mode) */}
+        {/* User Identity Preview Card — avatar synced from DB */}
         <div className="px-5 mb-6 flex items-center gap-4 overflow-hidden">
-          <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg border text-lg bg-cyan-500/10 border-cyan-500/30`}>
-            {currentUser?.avatar || '🐱'}
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg bg-gradient-to-tr ${avatarGradient} text-white font-serif text-lg font-bold`}>
+            {currentUser?.name?.charAt(0) || '?'}
           </div>
           <div className="flex flex-col opacity-0 group-hover:opacity-100 transition-opacity duration-300 whitespace-nowrap">
             <span className={`font-serif font-bold text-sm tracking-wide truncate max-w-[140px] ${isLight ? 'text-slate-900' : 'text-white'}`}>
               {currentUser?.name || 'Researcher'}
             </span>
-            <span className={`text-[9px] font-mono tracking-widest uppercase text-cyan-400`}>
-              {currentUser?.role || 'active'}
+            <span className={`text-[9px] font-mono tracking-widest uppercase font-bold ${
+              currentUser?.role === 'admin' ? 'text-amber-400' :
+              currentUser?.role === 'programmer' ? 'text-indigo-400' :
+              currentUser?.role === 'student' ? 'text-emerald-400' :
+              currentUser?.role === 'reviewer' ? 'text-teal-400' :
+              'text-cyan-400'
+            }`}>
+              {currentUser?.role === 'admin' ? 'Lab Director' :
+               currentUser?.role === 'programmer' ? 'Research Engineer' :
+               currentUser?.role === 'student' ? 'Graduate Student' :
+               currentUser?.role === 'reviewer' ? 'Peer Reviewer' :
+               'Academic Researcher'}
             </span>
           </div>
         </div>
@@ -110,7 +160,7 @@ export default function Sidebar({ currentView, onViewChange, currentUser }) {
         </nav>
       </div>
 
-      {/* Administrative Navigation (Logout removed from here) */}
+      {/* Administrative Navigation */}
       <div className={`border-t p-3 space-y-1.5 overflow-x-hidden ${isLight ? 'bg-slate-50/80 border-slate-200' : 'bg-black/20 border-white/5'}`}>
         <nav aria-label="Administrative Navigation" className="space-y-1.5">
           {administrativeRoutes.map(route => (

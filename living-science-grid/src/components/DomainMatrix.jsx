@@ -4,7 +4,7 @@ import {
   Network, Database, CheckSquare, Square, Save, Activity, Cpu, 
   X, Send, Sparkles, Info, BookOpen, ChevronLeft, ChevronRight, 
   History, Trash2, Pin, FileText, Minimize2, Maximize2, Edit3, Plus,
-  AlertCircle, RefreshCw, Copy, Check
+  AlertCircle, RefreshCw, Copy, Check, PanelLeftClose, PanelLeftOpen, Search
 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 import ReactMarkdown from 'react-markdown';
@@ -12,6 +12,8 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import { useTheme } from '../context/ThemeContext';
+
+const rehypeKatexOptions = [rehypeKatex, { strict: false, throwOnError: false }];
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 
@@ -79,7 +81,7 @@ const generateSmartPaperRecord = (file, idx) => {
 
   // Fallback domain-informed distinct record
   const seed = (idx + 1) * 17;
-  const cleanTitle = fileName.replace(/\.[^/.]+$/, "").replace(/[_\-]+/g, " ");
+  const cleanTitle = fileName.replace(/\.[^/.]+$/, "").replace(/[_-]+/g, " ");
   return {
     id: uniqueId,
     paper: cleanTitle,
@@ -98,12 +100,15 @@ const generateSmartPaperRecord = (file, idx) => {
 
 const isGenericRecord = (item) => {
   if (!item) return true;
-  const s = `${item.models || ''} ${item.data_specs || ''} ${item.dataset || ''} ${item.strengths || ''} ${item.weaknesses || ''}`.toLowerCase();
+  const s = `${item.models || ''} ${item.data_specs || ''} ${item.dataset || ''} ${item.strengths || ''} ${item.weaknesses || ''} ${item.result || ''}`.toLowerCase();
   return s.includes('neural transformer framework') ||
          s.includes('evaluated on empirical matrices') ||
          s.includes('benchmark validation corpus') ||
          s.includes('strong convergence properties') ||
-         s.includes('inference latency profile');
+         s.includes('inference latency profile') ||
+         s.includes('demonstrates robust parameter efficiency') ||
+         s.includes('computational complexity scaling on long context') ||
+         s.includes('n=2,800 evaluated instances');
 };
 
 // Helper: Extract and normalize JSON arrays from LLM outputs
@@ -194,6 +199,7 @@ export default function DomainMatrix({ setStatus }) {
   const [workspaceId, setWorkspaceId] = useState(null);
   const [workspaceTitle, setWorkspaceTitle] = useState("Literature Comparative Matrix");
   const [savedLedgers, setSavedLedgers] = useState([]);
+  const [ledgerSearchQuery, setLedgerSearchQuery] = useState('');
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [sidebarTab, setSidebarTab] = useState('sources'); 
@@ -221,9 +227,19 @@ export default function DomainMatrix({ setStatus }) {
     return chatHistoriesByPaper[selectedRow.id] || [];
   }, [selectedRow, chatHistoriesByPaper]);
 
+  const getCurrentUserId = () => {
+    try {
+      const user = JSON.parse(localStorage.getItem('sg_current_user') || '{}');
+      return user.id || 'usr_admin';
+    } catch {
+      return 'usr_admin';
+    }
+  };
+
   const fetchVault = async () => {
     try {
-      const res = await fetch(`${BACKEND_URL}/api/vault/files`);
+      const uid = getCurrentUserId();
+      const res = await fetch(`${BACKEND_URL}/api/vault/files?user_id=${encodeURIComponent(uid)}`);
       if (res.ok) setVaultFiles(await res.json());
     } catch (err) {
       console.warn("Vault offline, loading local store", err);
@@ -232,7 +248,8 @@ export default function DomainMatrix({ setStatus }) {
 
   const fetchLedgers = async () => {
     try {
-      const res = await fetch(`${BACKEND_URL}/api/domain-matrix`);
+      const uid = getCurrentUserId();
+      const res = await fetch(`${BACKEND_URL}/api/domain-matrix?user_id=${encodeURIComponent(uid)}`);
       if (res.ok) {
         const data = await res.json();
         setSavedLedgers(Array.isArray(data) ? data : []);
@@ -256,8 +273,8 @@ export default function DomainMatrix({ setStatus }) {
 
     if (!text && file.id) {
       const endpoints = [
-        `${BACKEND_URL}/api/vault/files/${file.id}`,
         `${BACKEND_URL}/api/library/file/${file.id}`,
+        `${BACKEND_URL}/api/vault/files/${file.id}`,
         `${BACKEND_URL}/api/vault/file/${file.id}`
       ];
       for (const ep of endpoints) {
@@ -273,14 +290,22 @@ export default function DomainMatrix({ setStatus }) {
     }
 
     // PDF Stream Decoding
-    if (text.startsWith('data:application/pdf') || text.startsWith('data:')) {
+    if (text.startsWith('data:application/pdf') || text.startsWith('data:') || text.startsWith('%PDF')) {
       try {
-        const base64Data = text.includes(',') ? text.split(',')[1] : text;
-        const binaryStr = window.atob(base64Data.replace(/\s/g, ''));
-        const bytes = new Uint8Array(binaryStr.length);
-        for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+        let bytes;
+        if (text.startsWith('%PDF')) {
+          bytes = new Uint8Array(text.length);
+          for (let i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i);
+        } else {
+          const base64Data = text.includes(',') ? text.split(',')[1] : text;
+          const cleanBase64 = base64Data.replace(/\s/g, '');
+          const paddedBase64 = cleanBase64.padEnd(cleanBase64.length + (4 - cleanBase64.length % 4) % 4, '=');
+          const binaryStr = window.atob(paddedBase64);
+          bytes = new Uint8Array(binaryStr.length);
+          for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+        }
         
-        const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
+        const pdf = await pdfjsLib.getDocument({ data: bytes, isEvalSupported: false }).promise;
         let extracted = "";
         const maxPages = Math.min(pdf.numPages, 12);
         for (let i = 1; i <= maxPages; i++) {
@@ -290,7 +315,7 @@ export default function DomainMatrix({ setStatus }) {
         }
         text = extracted;
       } catch (pdfErr) {
-        console.warn("PDF base64 parse failed, preserving raw slice:", pdfErr);
+        text = file.title || file.name || (typeof text === 'string' ? text.slice(0, 1000) : "");
       }
     }
 
@@ -412,7 +437,8 @@ CRITICAL DIRECTIVES:
           selectedFiles,
           matrixData: parsedMatrix,
           chatHistory: comparativeChat,
-          chatHistoriesByPaper
+          chatHistoriesByPaper,
+          userId: getCurrentUserId()
         })
       }).catch(err => console.warn("Background auto-save bypassed", err));
 
@@ -528,7 +554,8 @@ Avoid generic boilerplate. Specify architectural trade-offs, time/memory complex
               selectedFiles,
               matrixData,
               chatHistory: comparativeChat,
-              chatHistoriesByPaper: nextHistoriesByPaper
+              chatHistoriesByPaper: nextHistoriesByPaper,
+              userId: getCurrentUserId()
             })
           }).catch(e => console.warn("Ledger auto-save missed", e));
         }
@@ -618,7 +645,8 @@ Provide comprehensive, mathematically grounded comparisons. Highlight algorithmi
               selectedFiles,
               matrixData,
               chatHistory: updatedComparative,
-              chatHistoriesByPaper
+              chatHistoriesByPaper,
+              userId: getCurrentUserId()
             })
           }).catch(e => console.warn("Ledger auto-save missed", e));
         }
@@ -650,7 +678,8 @@ Provide comprehensive, mathematically grounded comparisons. Highlight algorithmi
           selectedFiles,
           matrixData,
           chatHistory: comparativeChat,
-          chatHistoriesByPaper
+          chatHistoriesByPaper,
+          userId: getCurrentUserId()
         })
       });
 
@@ -738,7 +767,14 @@ Provide comprehensive, mathematically grounded comparisons. Highlight algorithmi
   };
 
   const safeMatrixData = Array.isArray(matrixData) ? matrixData : [];
-  const sortedLedgers = [...savedLedgers].sort((a, b) => (b.isPinned ? 1 : 0) - (a.isPinned ? 1 : 0));
+  const filteredLedgers = useMemo(() => {
+    let list = [...savedLedgers].sort((a, b) => (b.isPinned ? 1 : 0) - (a.isPinned ? 1 : 0));
+    if (ledgerSearchQuery.trim()) {
+      const q = ledgerSearchQuery.toLowerCase();
+      list = list.filter(l => (l.title || '').toLowerCase().includes(q));
+    }
+    return list;
+  }, [savedLedgers, ledgerSearchQuery]);
 
   return (
     <div className={`flex h-full w-full bg-transparent ${isLight ? 'text-slate-800' : 'text-slate-300'} overflow-hidden font-sans select-none relative`}>
@@ -763,7 +799,7 @@ Provide comprehensive, mathematically grounded comparisons. Highlight algorithmi
               </div>
               <div className="space-y-4">
                 <h3 className={`font-mono uppercase tracking-widest text-xs border-b pb-2 ${isLight ? 'text-slate-900 border-slate-200' : 'text-white border-white/10'}`}>Simulation Sandbox</h3>
-                <p>Click any matrix row to launch the local What-If sandbox chat simulator. Sessions save automatically into Supabase.</p>
+                <p>Click any matrix row to launch the local What-If sandbox chat simulator. Sessions save automatically into Sovereign PostgreSQL / SQLite Core.</p>
                 <p>Toggle between the <strong className={isLight ? 'text-slate-900' : 'text-white'}>Synthesis Matrix</strong> and the <strong className={isLight ? 'text-slate-900' : 'text-white'}>Comparative Survey</strong> to view benchmark analysis against industry standards.</p>
               </div>
             </div>
@@ -773,27 +809,27 @@ Provide comprehensive, mathematically grounded comparisons. Highlight algorithmi
       )}
 
       {/* LEFT SIDEBAR */}
-      <div className={`bg-transparent border-r ${isLight ? 'border-slate-200' : 'border-white/5'} flex flex-col z-20 flex-shrink-0 transition-all duration-300 relative ${isSidebarOpen ? 'w-72' : 'w-0'}`}>
-        <button 
-          onClick={() => setIsSidebarOpen(!isSidebarOpen)} 
-          className={`absolute -right-4 top-1/2 transform -translate-y-1/2 z-50 border w-8 h-8 rounded-full flex items-center justify-center shadow-lg transition-all ${isLight ? 'bg-white border-slate-200 text-slate-600 hover:text-slate-900' : 'bg-[#141414] border-white/10 text-slate-400 hover:text-white hover:bg-white/10'}`}
-        >
-          {isSidebarOpen ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
-        </button>
-
-        <div className="w-full h-full overflow-hidden flex flex-col">
-          <div className={`p-2 border-b flex gap-2 flex-shrink-0 bg-transparent ${isLight ? 'border-slate-200' : 'border-white/5'}`}>
+      <div className={`bg-transparent border-r ${isLight ? 'border-slate-200' : 'border-white/5'} flex flex-col z-20 flex-shrink-0 transition-all duration-300 relative ${isSidebarOpen ? 'w-72' : 'w-0 overflow-hidden'}`}>
+        <div className="w-72 h-full overflow-hidden flex flex-col">
+          <div className={`p-2 border-b flex items-center gap-1.5 flex-shrink-0 bg-transparent ${isLight ? 'border-slate-200' : 'border-white/5'}`}>
             <button 
               onClick={() => setSidebarTab('sources')} 
-              className={`flex-1 py-2 flex justify-center items-center gap-2 rounded-lg text-[10px] font-mono uppercase tracking-widest transition-colors ${sidebarTab === 'sources' ? (isLight ? 'bg-slate-200 text-slate-900' : 'bg-white/10 text-white') : 'text-slate-500 hover:bg-slate-500/10'}`}
+              className={`flex-1 py-1.5 flex justify-center items-center gap-1.5 rounded-lg text-[10px] font-mono uppercase tracking-widest transition-colors ${sidebarTab === 'sources' ? (isLight ? 'bg-slate-200 text-slate-900 font-bold' : 'bg-white/10 text-white font-bold') : 'text-slate-500 hover:bg-slate-500/10'}`}
             >
               <Database size={12} /> Sources
             </button>
             <button 
               onClick={() => setSidebarTab('ledger')} 
-              className={`flex-1 py-2 flex justify-center items-center gap-2 rounded-lg text-[10px] font-mono uppercase tracking-widest transition-colors ${sidebarTab === 'ledger' ? (isLight ? 'bg-slate-200 text-slate-900' : 'bg-white/10 text-white') : 'text-slate-500 hover:bg-slate-500/10'}`}
+              className={`flex-1 py-1.5 flex justify-center items-center gap-1.5 rounded-lg text-[10px] font-mono uppercase tracking-widest transition-colors ${sidebarTab === 'ledger' ? (isLight ? 'bg-slate-200 text-slate-900 font-bold' : 'bg-white/10 text-white font-bold') : 'text-slate-500 hover:bg-slate-500/10'}`}
             >
               <History size={12} /> Ledger
+            </button>
+            <button
+              onClick={() => setIsSidebarOpen(false)}
+              className={`p-1.5 rounded-lg text-slate-400 hover:text-white transition-colors ${isLight ? 'hover:bg-slate-200 hover:text-slate-900' : 'hover:bg-white/10'}`}
+              title="Collapse Sidebar"
+            >
+              <PanelLeftClose size={15} />
             </button>
           </div>
 
@@ -825,16 +861,32 @@ Provide comprehensive, mathematically grounded comparisons. Highlight algorithmi
 
             {sidebarTab === 'ledger' && (
               <>
-                <div className={`text-[10px] text-slate-500 mb-3 font-mono uppercase tracking-widest border-b pb-2 flex justify-between items-center ${isLight ? 'border-slate-200' : 'border-white/5'}`}>
+                <div className={`text-[10px] text-slate-500 mb-2 font-mono uppercase tracking-widest border-b pb-2 flex justify-between items-center ${isLight ? 'border-slate-200' : 'border-white/5'}`}>
                   Database Ledgers
                   <button onClick={initializeNewMatrix} className="flex items-center gap-1 text-rose-400 hover:text-rose-500 font-bold uppercase tracking-wider text-[10px]">
                     <Plus size={12} /> New Ledger
                   </button>
                 </div>
-                {sortedLedgers.length === 0 ? (
-                  <p className="text-xs text-slate-500 text-center mt-10">No saved ledgers found.</p>
+                <div className="relative mb-2.5">
+                  <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={ledgerSearchQuery}
+                    onChange={(e) => setLedgerSearchQuery(e.target.value)}
+                    placeholder="Search ledgers..."
+                    className={`w-full pl-7 pr-2.5 py-1.5 rounded-lg text-[10.5px] font-sans border outline-none transition-all ${
+                      isLight
+                        ? 'bg-white border-slate-200 text-slate-800 focus:border-rose-400 placeholder:text-slate-400'
+                        : 'bg-black/40 border-white/10 text-slate-200 focus:border-rose-400/60 placeholder:text-slate-600'
+                    }`}
+                  />
+                </div>
+                {filteredLedgers.length === 0 ? (
+                  <p className="text-xs text-slate-500 text-center mt-8">
+                    {ledgerSearchQuery ? `No ledgers matching "${ledgerSearchQuery}"` : "No saved ledgers found."}
+                  </p>
                 ) : (
-                  sortedLedgers.map(ledger => (
+                  filteredLedgers.map(ledger => (
                     <div 
                       key={ledger.id} 
                       onClick={() => loadLedger(ledger)}
@@ -885,21 +937,37 @@ Provide comprehensive, mathematically grounded comparisons. Highlight algorithmi
       {/* RIGHT PANEL */}
       <div className="flex-grow flex flex-col relative bg-transparent min-w-0 h-full">
         <div className={`p-4 md:px-6 md:py-4 border-b flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 flex-shrink-0 bg-transparent ${isLight ? 'border-slate-200' : 'border-white/5'}`}>
-          <div>
-            <h1 className={`text-xl font-serif tracking-tight flex items-center gap-2 ${isLight ? 'text-slate-900' : 'text-white'}`}>
-              Domain<span className="text-rose-400">Matrix</span> & Literature Survey
-            </h1>
-            <div className="flex items-center gap-2 mt-1">
-              <input 
-                type="text" 
-                value={workspaceTitle}
-                onChange={(e) => setWorkspaceTitle(e.target.value)}
-                className={`bg-transparent border-b border-dashed text-xs outline-none focus:border-rose-400 transition-colors w-64 pb-1 ${isLight ? 'border-slate-300 text-slate-700' : 'border-white/20 text-slate-400'}`}
-                placeholder="Name this Matrix..."
-              />
-              <button onClick={() => setShowManual(true)} className="text-slate-400 hover:text-rose-400 p-1 rounded">
-                <Info size={14} />
+          <div className="flex items-center gap-3">
+            {!isSidebarOpen && (
+              <button
+                onClick={() => setIsSidebarOpen(true)}
+                className={`p-2 rounded-xl border flex items-center gap-1.5 text-xs font-mono font-bold transition-all shadow-sm ${
+                  isLight
+                    ? 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:text-slate-900'
+                    : 'bg-[#141414] border-white/10 text-slate-300 hover:bg-white/10 hover:text-white'
+                }`}
+                title="Expand Sources & Ledgers Sidebar"
+              >
+                <PanelLeftOpen size={16} className="text-rose-400" />
+                <span className="hidden sm:inline text-[10.5px] uppercase tracking-wider">Sidebar</span>
               </button>
+            )}
+            <div>
+              <h1 className={`text-xl font-serif tracking-tight flex items-center gap-2 ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                Domain<span className="text-rose-400">Matrix</span> & Literature Survey
+              </h1>
+              <div className="flex items-center gap-2 mt-1">
+                <input
+                  type="text"
+                  value={workspaceTitle}
+                  onChange={(e) => setWorkspaceTitle(e.target.value)}
+                  className={`bg-transparent border-b border-dashed text-xs outline-none focus:border-rose-400 transition-colors w-64 pb-1 ${isLight ? 'border-slate-300 text-slate-700' : 'border-white/20 text-slate-400'}`}
+                  placeholder="Name this Matrix..."
+                />
+                <button onClick={() => setShowManual(true)} className="text-slate-400 hover:text-rose-400 p-1 rounded">
+                  <Info size={14} />
+                </button>
+              </div>
             </div>
           </div>
           
@@ -1133,9 +1201,9 @@ Provide comprehensive, mathematically grounded comparisons. Highlight algorithmi
                         <button 
                           onClick={() => setChatMode('paper')}
                           className={`px-2 py-1 rounded text-[10px] font-mono uppercase tracking-wider transition-colors max-w-[170px] truncate ${chatMode === 'paper' ? 'bg-rose-500 text-white font-bold shadow-sm' : isLight ? 'text-slate-600 hover:bg-slate-200' : 'text-slate-400 hover:bg-white/10'}`}
-                          title={selectedRow.paper}
+                          title={selectedRow?.paper || 'Paper'}
                         >
-                          Paper: {selectedRow.paper.split('(')[0].trim()}
+                          Paper: {(selectedRow?.paper || 'Paper').split('(')[0].trim()}
                         </button>
                         <button 
                           onClick={() => setChatMode('comparative')}
@@ -1196,7 +1264,7 @@ Provide comprehensive, mathematically grounded comparisons. Highlight algorithmi
                           <span className="text-[9px] font-mono text-emerald-400">{safeMatrixData.length} Papers Active</span>
                         </div>
                         <p className="text-xs text-slate-400 leading-relaxed truncate">
-                          Scope: {safeMatrixData.map(p => p.paper.split('(')[0].trim()).join(' vs ')}
+                          Scope: {safeMatrixData.map(p => (p?.paper || 'Paper').split('(')[0].trim()).join(' vs ')}
                         </p>
                       </div>
                     )}
@@ -1282,7 +1350,7 @@ Provide comprehensive, mathematically grounded comparisons. Highlight algorithmi
                     {(chatMode === 'paper' && selectedRow ? currentPaperChat : comparativeChat).map((msg, idx) => (
                       <div key={idx} className={`p-4 rounded-2xl border max-w-[92%] shadow-sm ${msg.role === 'user' ? (isLight ? 'ml-auto bg-slate-100 border-slate-200 text-slate-800' : 'ml-auto bg-[#1a1a1a] border-white/10 text-white') : (isLight ? 'mr-auto bg-rose-50/80 border-rose-200 text-slate-800' : 'mr-auto bg-rose-950/20 border-rose-500/20 text-slate-200')}`}>
                         <div className="text-[9px] font-mono text-slate-500 uppercase tracking-widest mb-2 flex items-center justify-between">
-                          <span>{msg.role === 'user' ? 'You' : (chatMode === 'paper' && selectedRow ? `Sandbox (${selectedRow.paper.split('(')[0].trim()})` : 'Literature Copilot')}</span>
+                          <span>{msg.role === 'user' ? 'You' : (chatMode === 'paper' && selectedRow ? `Sandbox (${(selectedRow?.paper || 'Paper').split('(')[0].trim()})` : 'Literature Copilot')}</span>
                           {msg.role !== 'user' && (
                             <button
                               onClick={() => {
@@ -1346,6 +1414,113 @@ Provide comprehensive, mathematically grounded comparisons. Highlight algorithmi
 
         </div>
       </div>
+
+      {/* OPERATOR MANUAL MODAL */}
+      {showManual && (
+        <div className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 md:p-8 animate-fadeIn">
+          <div className={`border rounded-3xl p-6 md:p-8 max-w-3xl w-full max-h-[90vh] overflow-y-auto custom-scrollbar shadow-2xl relative ${themeClasses.bgCard}`}>
+            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-rose-500 via-purple-500 to-cyan-500"></div>
+            <button onClick={() => setShowManual(false)} className="absolute top-5 right-5 text-slate-500 hover:text-white cursor-pointer">
+              <X size={18}/>
+            </button>
+
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-10 h-10 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400">
+                <Network size={20} />
+              </div>
+              <div>
+                <h2 className={`text-xl md:text-2xl font-serif tracking-tight font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                  DomainMatrix User Manual & Operator Guide
+                </h2>
+                <p className="text-xs font-mono text-slate-400">
+                  Cross-Paper Literature Synthesis, Architectural Trade-Offs & What-If Simulation Sandbox
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-4 font-sans text-xs text-slate-300 leading-relaxed select-text">
+              {/* Step 1: Selecting Papers */}
+              <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/10 space-y-2">
+                <h3 className="font-mono uppercase tracking-wider text-xs font-bold text-rose-400 flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-rose-500/20 text-rose-300 flex items-center justify-center text-[10px]">1</span>
+                  Selecting & Managing Research Corpora
+                </h3>
+                <p>
+                  Build your comparative literature corpus easily:
+                </p>
+                <ul className="list-disc pl-5 space-y-1 text-slate-400">
+                  <li><strong>Vault Sources Tab</strong>: Open the left sidebar to browse and check multiple research papers from your Global Vault.</li>
+                  <li><strong>Active Selection</strong>: Check or uncheck papers anytime to focus your comparative survey on specific methodologies.</li>
+                  <li><strong>Saved Ledgers Tab</strong>: Restore previous comparative matrices with full chat histories and customized notes intact.</li>
+                </ul>
+              </div>
+
+              {/* Step 2: Automated Empirical Extraction */}
+              <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/10 space-y-2">
+                <h3 className="font-mono uppercase tracking-wider text-xs font-bold text-amber-400 flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-300 flex items-center justify-center text-[10px]">2</span>
+                  Automated Feature & Benchmark Extraction
+                </h3>
+                <p>
+                  Click <strong>Synthesize Matrix</strong> in the toolbar. The engine automatically extracts and normalizes:
+                </p>
+                <ul className="list-disc pl-5 space-y-1 text-slate-400">
+                  <li><strong>Datasets & Specifications</strong>: Training corpus, sample sizes, and data distributions.</li>
+                  <li><strong>Hyperparameters & Variables</strong>: Learning rates, optimizers, batch sizes, and warmup schedules.</li>
+                  <li><strong>Model Architectures</strong>: Encoder/decoder configurations, layer depths, and attention mechanisms.</li>
+                  <li><strong>Strengths, Bottlenecks & Results</strong>: Empirical achievements, memory bottlenecks, and SOTA scores.</li>
+                </ul>
+              </div>
+
+              {/* Step 3: Matrix vs. Survey Modes */}
+              <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/10 space-y-2">
+                <h3 className="font-mono uppercase tracking-wider text-xs font-bold text-purple-400 flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-purple-500/20 text-purple-300 flex items-center justify-center text-[10px]">3</span>
+                  Synthesis Matrix vs. Comparative Survey Views
+                </h3>
+                <p>
+                  Switch perspectives using the view toggle in the header:
+                </p>
+                <ul className="list-disc pl-5 space-y-1 text-slate-400">
+                  <li><strong>Synthesis Matrix</strong>: A dense, horizontal-scroll comparative table with sortable columns and direct in-cell editing.</li>
+                  <li><strong>Comparative Survey</strong>: Expandable card layout displaying in-depth methodological breakdowns per paper.</li>
+                  <li><strong>Columns Customizer</strong>: Toggle visible columns (Datasets, Variables, Strengths, Weaknesses, Results, Notes) to adapt to your publication requirements.</li>
+                </ul>
+              </div>
+
+              {/* Step 4: What-If Hypothesis Simulator */}
+              <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/10 space-y-2">
+                <h3 className="font-mono uppercase tracking-wider text-xs font-bold text-cyan-400 flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-300 flex items-center justify-center text-[10px]">4</span>
+                  What-If Simulation Sandbox & Cross-Paper Copilot
+                </h3>
+                <p>
+                  Click any row in the matrix or open the Copilot drawer to launch the simulation engine:
+                </p>
+                <ul className="list-disc pl-5 space-y-1 text-slate-400">
+                  <li><strong>What-If Sandbox</strong>: Pose architectural mutations (e.g. <em>"What if we replace self-attention with Mamba SSM?"</em> or <em>"What if batch size is doubled?"</em>) to receive empirical risk projections.</li>
+                  <li><strong>Comparative Cross-Paper Questions</strong>: Ask the Copilot to contrast conflicting benchmark claims across all selected papers.</li>
+                </ul>
+              </div>
+
+              {/* Step 5: Database Persistence */}
+              <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/10 space-y-2">
+                <h3 className="font-mono uppercase tracking-wider text-xs font-bold text-emerald-400 flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center justify-center text-[10px]">5</span>
+                  Ledger History & Multi-User Database Isolation
+                </h3>
+                <p>
+                  Click <strong>Save Matrix</strong> to persist your complete synthesis, selected corpora, and simulation chat history to PostgreSQL. Each user's matrices are strictly isolated and never leak across accounts.
+                </p>
+              </div>
+            </div>
+
+            <button onClick={() => setShowManual(false)} className="mt-6 w-full bg-gradient-to-r from-rose-500 to-purple-500 text-white font-bold uppercase tracking-widest text-xs py-3 rounded-xl hover:opacity-95 transition-opacity shadow-lg cursor-pointer">
+              Acknowledge & Close Manual
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
