@@ -54,3 +54,16 @@ The system currently "fakes" AI functionality in several key areas. For example:
 2.  **Rewrite `query_local_llm` calls:** Ensure no artificially low timeouts force fallbacks.
 3.  **Delete Heuristic Functions:** Remove `generate_scholarly_response`, `synthesize_research_paper`, `analyze_manuscript_dynamically`, and hardcoded `analyze_math_equation` logic. Replace them with structured LLM prompts (using `force_json=True` where necessary) combined with RAG context.
 4.  **Verify End-to-End:** Ensure that every prompt provides adequate context from the document chunks so the LLM has all the information it needs to reason effectively.
+
+### 4. Implement User-Specific Long-Term Memory & Caching
+**Goal:** Make the LLM "smarter" and faster over time by remembering user preferences, past interactions, and previously processed paper contexts.
+
+**Actions:**
+*   **User Persona & Context Graph:** Create a database schema (e.g., in Postgres) to store a "User Memory Graph" or "User Context Profile". When the user asks a question, embed the query and retrieve not just paper chunks, but also previous relevant interactions or preferences stored for that `user_id`.
+*   **Paper Embedding Caching:** Once a paper is parsed, chunked, and embedded, cache these embeddings and summary metadata (e.g., extracted methodologies, math equations) permanently. When the Domain Matrix or Scholar Audit requests analysis on an already-processed paper, the system should fetch the cached context instantly rather than re-reading/re-embedding the raw text.
+*   **Contextual Chat History:** In `InsightLens` and `Domain Matrix`, ensure the chat history is properly managed. Instead of passing the entire history to the LLM (which blows up context limits), maintain a rolling window of recent chat messages AND embed previous chat summaries into the user's memory vector store for long-term recall.
+*   **Adaptive Prompts:** Adjust the `system_prompt` dynamically based on the user's role (extracted from the database, e.g., 'researcher', 'student') and their past interaction history, so the LLM tailors its complexity and focus automatically.
+
+## Execution Directives for Gemini (Continued)
+5.  **Implement Memory Store:** Create a mechanism (using PostgreSQL JSONB and pgvector) to store and retrieve user-specific historical context, preferences, and paper summaries.
+6.  **Modify Chat Endpoints:** Update endpoints like `/api/research/chat` and `/api/research/matrix` to inject this retrieved user memory alongside the paper RAG context.
