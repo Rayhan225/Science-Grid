@@ -71,7 +71,7 @@ graph TD;
 | **AI Engine** | Python, Ollama | `/living-science-grid/server` | Powers the custom SLM, Copilot chatting, and semantic searches. |
 | **Validation** | Rust, Cargo | `/validation-engine` | High-performance backend component for robust validation of scientific data. |
 
-*(Note: Developer Tools and Layer 7 API components have been excluded from this overview.)*
+
 
 ---
 
