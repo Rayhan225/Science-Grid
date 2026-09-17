@@ -13,6 +13,8 @@ import psycopg2
 import psycopg2.extras
 from psycopg2.extras import RealDictCursor
 
+from psycopg2 import pool
+
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "postgresql://postgres.nxarpilggbxfoyfkywey:RayhanSourov%40123"
@@ -21,10 +23,24 @@ DATABASE_URL = os.getenv(
 )
 
 _connection = None
+_pool = None
+
+
+def get_pool():
+    """Retrieve or initialize the ThreadedConnectionPool."""
+    global _pool
+    if _pool is None:
+        try:
+            _pool = pool.ThreadedConnectionPool(minconn=2, maxconn=10, dsn=DATABASE_URL)
+            print("[OK] [DB Manager] Initialized ThreadedConnectionPool (min=2, max=10).")
+        except Exception as e:
+            print(f"[WARN] [DB Manager] Connection pool init failed: {e}")
+            _pool = None
+    return _pool
 
 
 def get_connection():
-    """Get or create the database connection."""
+    """Get or create the fallback standalone database connection."""
     global _connection
     if _connection is None or _connection.closed:
         _connection = psycopg2.connect(DATABASE_URL)
@@ -35,17 +51,36 @@ def get_connection():
 
 @contextmanager
 def get_cursor():
-    """Context manager for a database cursor with auto commit/rollback."""
-    conn = get_connection()
+    """Context manager for a pooled database cursor with auto commit/rollback."""
+    p = get_pool()
+    conn = None
+    borrowed_from_pool = False
+    if p is not None:
+        try:
+            conn = p.getconn()
+            conn.autocommit = True
+            borrowed_from_pool = True
+        except Exception:
+            conn = None
+
+    if conn is None:
+        conn = get_connection()
+        borrowed_from_pool = False
+
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     try:
         yield cursor
-        conn.commit()
     except Exception:
-        conn.rollback()
+        if not conn.autocommit:
+            conn.rollback()
         raise
     finally:
         cursor.close()
+        if borrowed_from_pool and p is not None and conn is not None:
+            try:
+                p.putconn(conn)
+            except Exception:
+                pass
 
 
 def init_tables():
@@ -53,6 +88,7 @@ def init_tables():
     with get_cursor() as cur:
         cur.execute("""
             CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+            CREATE EXTENSION IF NOT EXISTS "vector";
 
             CREATE TABLE IF NOT EXISTS papers (
                 paper_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -104,10 +140,58 @@ def init_tables():
             ALTER TABLE audit_ledger ADD COLUMN IF NOT EXISTS user_id VARCHAR(100);
             ALTER TABLE audit_ledger ADD COLUMN IF NOT EXISTS file_id VARCHAR(100);
             ALTER TABLE papers ADD COLUMN IF NOT EXISTS user_id VARCHAR(100);
+
+            CREATE TABLE IF NOT EXISTS document_chunks (
+                chunk_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                paper_id UUID REFERENCES papers(paper_id) ON DELETE CASCADE,
+                file_id VARCHAR(100),
+                chunk_index INT NOT NULL,
+                page_number INT DEFAULT 1,
+                section_title TEXT,
+                content TEXT NOT NULL,
+                token_count INT DEFAULT 0,
+                embedding vector(384),
+                metadata JSONB DEFAULT '{}'::jsonb,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_chunks_paper ON document_chunks(paper_id);
+            CREATE INDEX IF NOT EXISTS idx_chunks_file ON document_chunks(file_id);
+
+            CREATE TABLE IF NOT EXISTS user_memory_graph (
+                memory_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                user_id VARCHAR(100) NOT NULL,
+                memory_type VARCHAR(50) NOT NULL,
+                content TEXT NOT NULL,
+                embedding vector(384),
+                metadata JSONB DEFAULT '{}'::jsonb,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_user_mem_uid ON user_memory_graph(user_id);
+
+            CREATE TABLE IF NOT EXISTS paper_analysis_cache (
+                cache_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                paper_id UUID REFERENCES papers(paper_id) ON DELETE CASCADE,
+                analysis_type VARCHAR(50) NOT NULL,
+                cached_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+                CONSTRAINT unique_paper_analysis UNIQUE (paper_id, analysis_type)
+            );
         """)
+
+        # Fast HNSW vector indexes for sub-millisecond cosine similarity search
+        try:
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_chunks_embedding_hnsw 
+                ON document_chunks USING hnsw (embedding vector_cosine_ops);
+                CREATE INDEX IF NOT EXISTS idx_user_mem_embedding_hnsw 
+                ON user_memory_graph USING hnsw (embedding vector_cosine_ops);
+            """)
+        except Exception as hnsw_err:
+            print(f"[INFO] [DB Manager] HNSW index notice: {hnsw_err}")
+
     print(
-        "[OK] [DB Manager] Core research tables verified "
-        "(papers, paper_sections, math_evaluations, audit_ledger)."
+        "[OK] [DB Manager] Core research and vector tables verified "
+        "(papers, paper_sections, math_evaluations, audit_ledger, document_chunks, user_memory_graph, paper_analysis_cache)."
     )
 
 
@@ -649,12 +733,341 @@ def get_role_telemetry(user_id: Optional[str] = None, role: str = "researcher") 
 
 
 # ══════════════════════════════════════════════════════════════
+# DOCUMENT CHUNKS & VECTOR RAG (pgvector)
+# ══════════════════════════════════════════════════════════════
+
+def insert_document_chunk(
+    paper_id: Optional[str],
+    file_id: Optional[str],
+    chunk_index: int,
+    page_number: int,
+    section_title: str,
+    content: str,
+    token_count: int,
+    embedding: Optional[List[float]],
+    metadata: Optional[Dict] = None
+) -> str:
+    """Insert a single document chunk with pgvector embedding."""
+    chunk_id = str(uuid.uuid4())
+    emb_str = str(embedding) if embedding is not None else None
+    valid_paper_id = None
+    if paper_id:
+        try:
+            valid_paper_id = str(uuid.UUID(str(paper_id)))
+        except (ValueError, AttributeError):
+            valid_paper_id = None
+            if metadata is not None:
+                metadata["raw_paper_id"] = str(paper_id)
+
+    with get_cursor() as cur:
+        cur.execute(
+            """INSERT INTO document_chunks 
+               (chunk_id, paper_id, file_id, chunk_index, page_number, section_title, content, token_count, embedding, metadata)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::vector, %s::jsonb)
+               RETURNING chunk_id""",
+            (
+                chunk_id, valid_paper_id, str(file_id) if file_id is not None else None, chunk_index, page_number, section_title,
+                content, token_count, emb_str, json.dumps(metadata or {})
+            )
+        )
+        row = cur.fetchone()
+        return str(row["chunk_id"])
+
+
+def insert_document_chunks_batch(chunks: List[Dict]) -> int:
+    """Insert a batch of document chunks efficiently using executemany."""
+    if not chunks:
+        return 0
+    with get_cursor() as cur:
+        args = []
+        for c in chunks:
+            cid = str(c.get("chunk_id") or uuid.uuid4())
+            emb = c.get("embedding")
+            emb_str = str(list(emb)) if emb is not None else None
+            meta = dict(c.get("metadata") or {})
+            pid = c.get("paper_id")
+            valid_pid = None
+            if pid:
+                try:
+                    valid_pid = str(uuid.UUID(str(pid)))
+                except (ValueError, AttributeError):
+                    valid_pid = None
+                    meta["raw_paper_id"] = str(pid)
+
+            fid = c.get("file_id")
+            args.append((
+                cid,
+                valid_pid,
+                str(fid) if fid is not None else None,
+                int(c.get("chunk_index", 0)),
+                int(c.get("page_number", 1)),
+                c.get("section_title") or "General",
+                c.get("content", ""),
+                int(c.get("token_count", 0)),
+                emb_str,
+                json.dumps(meta)
+            ))
+        psycopg2.extras.execute_values(
+            cur,
+            """INSERT INTO document_chunks 
+               (chunk_id, paper_id, file_id, chunk_index, page_number, section_title, content, token_count, embedding, metadata)
+               VALUES %s""",
+            args,
+            template="(%s, %s, %s, %s, %s, %s, %s, %s, %s::vector, %s::jsonb)"
+        )
+        return len(chunks)
+
+
+def search_document_chunks(
+    query_embedding: List[float],
+    paper_id: Optional[str] = None,
+    file_id: Optional[str] = None,
+    top_k: int = 5,
+    min_similarity: float = 0.0
+) -> List[Dict]:
+    """
+    Search document chunks via pgvector cosine distance (<=>).
+    Returns chunks ordered by similarity descending.
+    """
+    emb_str = str(list(query_embedding))
+    conditions = ["embedding IS NOT NULL"]
+    params = [emb_str]
+
+    if paper_id:
+        conditions.append("paper_id = %s")
+        params.append(paper_id)
+    if file_id:
+        conditions.append("file_id = %s")
+        params.append(file_id)
+
+    params.extend([emb_str, min_similarity, top_k])
+
+    where_clause = " AND ".join(conditions)
+    sql = f"""
+        SELECT chunk_id, paper_id, file_id, chunk_index, page_number, 
+               section_title, content, token_count, metadata, created_at,
+               (1 - (embedding <=> %s::vector)) AS similarity
+        FROM document_chunks
+        WHERE {where_clause}
+          AND (1 - (embedding <=> %s::vector)) >= %s
+        ORDER BY embedding <=> %s::vector ASC
+        LIMIT %s
+    """
+    # Need emb_str twice for similarity calculation and once for ordering
+    # Rebuild params cleanly
+    final_params = [emb_str] # for select similarity
+    for c in conditions[1:]: # skip first condition 'embedding IS NOT NULL'
+        pass
+    
+    # Clean parameterized query
+    query_params = [emb_str]
+    filter_sql = ""
+    if paper_id:
+        valid_pid = None
+        try:
+            valid_pid = str(uuid.UUID(str(paper_id)))
+        except (ValueError, AttributeError):
+            valid_pid = None
+        if valid_pid:
+            filter_sql += " AND paper_id = %s"
+            query_params.append(valid_pid)
+        else:
+            filter_sql += " AND metadata->>'raw_paper_id' = %s"
+            query_params.append(str(paper_id))
+
+    if file_id:
+        filter_sql += " AND file_id = %s"
+        query_params.append(str(file_id))
+
+    query_params.extend([emb_str, min_similarity, emb_str, top_k])
+
+    final_sql = f"""
+        SELECT chunk_id, paper_id, file_id, chunk_index, page_number, 
+               section_title, content, token_count, metadata, created_at,
+               (1.0 - (embedding <=> %s::vector)) AS similarity
+        FROM document_chunks
+        WHERE embedding IS NOT NULL {filter_sql}
+          AND (1.0 - (embedding <=> %s::vector)) >= %s
+        ORDER BY embedding <=> %s::vector ASC
+        LIMIT %s
+    """
+
+    with get_cursor() as cur:
+        cur.execute(final_sql, tuple(query_params))
+        rows = cur.fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_chunks_by_paper(paper_id: str) -> List[Dict]:
+    """Retrieve all chunks for a specific paper ordered by chunk_index."""
+    valid_pid = None
+    if paper_id:
+        try:
+            valid_pid = str(uuid.UUID(str(paper_id)))
+        except (ValueError, AttributeError):
+            valid_pid = None
+
+    with get_cursor() as cur:
+        if valid_pid:
+            cur.execute(
+                """SELECT chunk_id, paper_id, file_id, chunk_index, page_number,
+                          section_title, content, token_count, metadata, created_at
+                   FROM document_chunks
+                   WHERE paper_id = %s
+                   ORDER BY chunk_index ASC""",
+                (valid_pid,)
+            )
+        else:
+            cur.execute(
+                """SELECT chunk_id, paper_id, file_id, chunk_index, page_number,
+                          section_title, content, token_count, metadata, created_at
+                   FROM document_chunks
+                   WHERE metadata->>'raw_paper_id' = %s
+                   ORDER BY chunk_index ASC""",
+                (str(paper_id),)
+            )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def delete_chunks_by_paper(paper_id: str) -> int:
+    """Delete all chunks for a specific paper."""
+    valid_pid = None
+    if paper_id:
+        try:
+            valid_pid = str(uuid.UUID(str(paper_id)))
+        except (ValueError, AttributeError):
+            valid_pid = None
+
+    with get_cursor() as cur:
+        if valid_pid:
+            cur.execute("DELETE FROM document_chunks WHERE paper_id = %s", (valid_pid,))
+        else:
+            cur.execute("DELETE FROM document_chunks WHERE metadata->>'raw_paper_id' = %s", (str(paper_id),))
+        return cur.rowcount
+
+
+# ══════════════════════════════════════════════════════════════
+# USER MEMORY GRAPH & CONTEXT PROFILES
+# ══════════════════════════════════════════════════════════════
+
+def insert_user_memory(
+    user_id: str,
+    memory_type: str,
+    content: str,
+    embedding: Optional[List[float]] = None,
+    metadata: Optional[Dict] = None
+) -> str:
+    """Store a user-specific memory node (interaction summary, preference, domain expertise)."""
+    memory_id = str(uuid.uuid4())
+    emb_str = str(list(embedding)) if embedding is not None else None
+    with get_cursor() as cur:
+        cur.execute(
+            """INSERT INTO user_memory_graph (memory_id, user_id, memory_type, content, embedding, metadata)
+               VALUES (%s, %s, %s, %s, %s::vector, %s::jsonb)
+               RETURNING memory_id""",
+            (memory_id, user_id or "usr_admin", memory_type, content, emb_str, json.dumps(metadata or {}))
+        )
+        row = cur.fetchone()
+        return str(row["memory_id"])
+
+
+def search_user_memory(user_id: str, query_embedding: List[float], top_k: int = 3) -> List[Dict]:
+    """Retrieve the most contextually relevant past user interactions or preferences."""
+    emb_str = str(list(query_embedding))
+    uid = user_id or "usr_admin"
+    with get_cursor() as cur:
+        cur.execute(
+            """SELECT memory_id, user_id, memory_type, content, metadata, created_at,
+                      (1.0 - (embedding <=> %s::vector)) AS similarity
+               FROM user_memory_graph
+               WHERE (user_id = %s OR user_id = 'usr_admin') AND embedding IS NOT NULL
+               ORDER BY embedding <=> %s::vector ASC
+               LIMIT %s""",
+            (emb_str, uid, emb_str, top_k)
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def get_user_recent_memories(user_id: str, limit: int = 5) -> List[Dict]:
+    """Fetch recent user memory entries."""
+    uid = user_id or "usr_admin"
+    with get_cursor() as cur:
+        cur.execute(
+            """SELECT memory_id, user_id, memory_type, content, metadata, created_at
+               FROM user_memory_graph
+               WHERE user_id = %s
+               ORDER BY created_at DESC
+               LIMIT %s""",
+            (uid, limit)
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+# ══════════════════════════════════════════════════════════════
+# PAPER ANALYSIS CACHE (Memory + PostgreSQL Hybrid)
+# ══════════════════════════════════════════════════════════════
+
+_ANALYSIS_MEMORY_CACHE: Dict[tuple, Dict] = {}
+_MAX_ANALYSIS_CACHE = 1000
+
+
+def get_cached_paper_analysis(paper_id: str, analysis_type: str) -> Optional[Dict]:
+    """Fetch cached analysis (matrix digest, rigor audit, math equations). Checks fast in-memory cache first."""
+    if not paper_id or not analysis_type:
+        return None
+    cache_key = (str(paper_id), str(analysis_type))
+    if cache_key in _ANALYSIS_MEMORY_CACHE:
+        return _ANALYSIS_MEMORY_CACHE[cache_key]
+
+    with get_cursor() as cur:
+        cur.execute(
+            """SELECT cached_data, updated_at FROM paper_analysis_cache 
+               WHERE paper_id = %s AND analysis_type = %s""",
+            (paper_id, analysis_type)
+        )
+        row = cur.fetchone()
+        if row and row.get("cached_data"):
+            data = dict(row["cached_data"])
+            if len(_ANALYSIS_MEMORY_CACHE) < _MAX_ANALYSIS_CACHE:
+                _ANALYSIS_MEMORY_CACHE[cache_key] = data
+            return data
+        return None
+
+
+def set_cached_paper_analysis(paper_id: str, analysis_type: str, data: Dict) -> bool:
+    """Store or update cached paper analysis in both memory and PostgreSQL."""
+    if not paper_id or not analysis_type:
+        return False
+    cache_key = (str(paper_id), str(analysis_type))
+    if len(_ANALYSIS_MEMORY_CACHE) < _MAX_ANALYSIS_CACHE:
+        _ANALYSIS_MEMORY_CACHE[cache_key] = data
+
+    with get_cursor() as cur:
+        cur.execute(
+            """INSERT INTO paper_analysis_cache (cache_id, paper_id, analysis_type, cached_data, updated_at)
+               VALUES (gen_random_uuid(), %s, %s, %s::jsonb, NOW())
+               ON CONFLICT (paper_id, analysis_type)
+               DO UPDATE SET cached_data = EXCLUDED.cached_data, updated_at = NOW()
+               RETURNING cache_id""",
+            (paper_id, analysis_type, json.dumps(data))
+        )
+        return cur.fetchone() is not None
+
+
+# ══════════════════════════════════════════════════════════════
 # UTILITY
 # ══════════════════════════════════════════════════════════════
 
 def close():
-    """Close the database connection."""
-    global _connection
+    """Close the database connection and connection pool."""
+    global _connection, _pool
+    if _pool:
+        try:
+            _pool.closeall()
+            _pool = None
+            print("[INFO] [DB Manager] Connection pool closed.")
+        except Exception:
+            pass
     if _connection and not _connection.closed:
         _connection.close()
         _connection = None
