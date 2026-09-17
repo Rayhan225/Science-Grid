@@ -36,8 +36,17 @@ export default function Dashboard({ setCurrentView, onSelectTool, currentView, c
     setTimeout(() => setToastMessage(null), 3000);
   };
 
+  // Initialize from cache for instant 0ms rendering
+  const cachedData = (() => {
+    try {
+      return JSON.parse(localStorage.getItem('sg_dashboard_cache') || '{}');
+    } catch {
+      return {};
+    }
+  })();
+
   // Telemetry & DB State
-  const [telemetry, setTelemetry] = useState({
+  const [telemetry, setTelemetry] = useState(() => cachedData.telemetry || {
     totalPagesRead: 32,
     annotationVolumes: 18,
     processingVelocityDays: 6,
@@ -49,16 +58,16 @@ export default function Dashboard({ setCurrentView, onSelectTool, currentView, c
     studentFlashcards: 8
   });
 
-  const [quotes, setQuotes] = useState([]);
+  const [quotes, setQuotes] = useState(() => cachedData.quotes || []);
   const [currentQuoteIdx, setCurrentQuoteIdx] = useState(0);
-  const [recentWorkspaces, setRecentWorkspaces] = useState([]);
-  const [recentAudits, setRecentAudits] = useState([]);
-  const [adminStats, setAdminStats] = useState(null);
-  const [flashcardsList, setFlashcardsList] = useState([]);
-  const [codeList, setCodeList] = useState([]);
-  const [vaultFilesList, setVaultFilesList] = useState([]);
-  const [notesList, setNotesList] = useState([]);
-  const [roleGraphStats, setRoleGraphStats] = useState(null);
+  const [recentWorkspaces, setRecentWorkspaces] = useState(() => cachedData.recentWorkspaces || []);
+  const [recentAudits, setRecentAudits] = useState(() => cachedData.recentAudits || []);
+  const [adminStats, setAdminStats] = useState(() => cachedData.adminStats || null);
+  const [flashcardsList, setFlashcardsList] = useState(() => cachedData.flashcardsList || []);
+  const [codeList, setCodeList] = useState(() => cachedData.codeList || []);
+  const [vaultFilesList, setVaultFilesList] = useState(() => cachedData.vaultFilesList || []);
+  const [notesList, setNotesList] = useState(() => cachedData.notesList || []);
+  const [roleGraphStats, setRoleGraphStats] = useState(() => cachedData.roleGraphStats || null);
   const [universalSearch, setUniversalSearch] = useState('');
   const [searchCategory, setSearchCategory] = useState('ALL'); // 'ALL' | 'PAPERS' | 'WORKSPACES' | 'AUDITS' | 'NOTES' | 'CODE' | 'SETTINGS'
   const [isSearchFocused, setIsSearchFocused] = useState(false);
@@ -93,72 +102,54 @@ export default function Dashboard({ setCurrentView, onSelectTool, currentView, c
   }, []);
 
   // Fetch live telemetry, workspaces, audits, vault files, and admin stats from database
+  // Fetch live telemetry, workspaces, audits, vault files, and admin stats concurrently
   useEffect(() => {
-    const fetchDashboardData = async () => {
-      try {
-        const userId = currentUser?.id || '';
-        const uidParam = userId ? `?user_id=${userId}` : '';
-        const [statsRes, quotesRes, wsRes, auditsRes, adminRes, cardsRes, codeRes, vaultRes, notesRes, roleStatsRes] = await Promise.all([
-          fetch(`${BACKEND_URL}/api/telemetry/stats`).catch(() => null),
-          fetch(`${BACKEND_URL}/api/quotes`).catch(() => null),
-          fetch(`${BACKEND_URL}/api/workspaces${uidParam}`).catch(() => null),
-          fetch(`${BACKEND_URL}/api/research/audits${uidParam}`).catch(() => null),
-          fetch(`${BACKEND_URL}/api/admin/system-stats`).catch(() => null),
-          fetch(`${BACKEND_URL}/api/student/flashcards${uidParam}`).catch(() => null),
-          fetch(`${BACKEND_URL}/api/code/implementations${uidParam}`).catch(() => null),
-          fetch(`${BACKEND_URL}/api/vault/files${uidParam}`).catch(() => null),
-          fetch(`${BACKEND_URL}/api/vault/notes${uidParam}`).catch(() => null),
-          fetch(`${BACKEND_URL}/api/telemetry/role-stats?role=${encodeURIComponent(activeRole || 'researcher')}${uidParam}`).catch(() => null)
-        ]);
+    let isMounted = true;
+    const cacheObj = {};
 
-        if (statsRes && statsRes.ok) {
-          const sData = await statsRes.json();
-          setTelemetry(prev => ({ ...prev, ...sData }));
+    const safeFetch = async (endpoint, onData, key) => {
+      try {
+        const res = await fetch(`${BACKEND_URL}${endpoint}`);
+        if (res.ok && isMounted) {
+          const data = await res.json();
+          onData(data);
+          if (key) {
+            cacheObj[key] = data;
+            try {
+              const currentCache = JSON.parse(localStorage.getItem('sg_dashboard_cache') || '{}');
+              localStorage.setItem('sg_dashboard_cache', JSON.stringify({ ...currentCache, ...cacheObj }));
+            } catch {}
+          }
         }
-        if (roleStatsRes && roleStatsRes.ok) {
-          const rsData = await roleStatsRes.json();
-          setRoleGraphStats(rsData);
-        }
-        if (quotesRes && quotesRes.ok) {
-          const qData = await quotesRes.json();
-          if (Array.isArray(qData) && qData.length > 0) setQuotes(qData);
-        }
-        if (wsRes && wsRes.ok) {
-          const wData = await wsRes.json();
-          if (Array.isArray(wData)) setRecentWorkspaces(wData);
-        }
-        if (auditsRes && auditsRes.ok) {
-          const aData = await auditsRes.json();
-          if (Array.isArray(aData)) setRecentAudits(aData);
-        }
-        if (adminRes && adminRes.ok) {
-          const admData = await adminRes.json();
-          setAdminStats(admData);
-        }
-        if (cardsRes && cardsRes.ok) {
-          const cData = await cardsRes.json();
-          if (Array.isArray(cData)) setFlashcardsList(cData);
-        }
-        if (codeRes && codeRes.ok) {
-          const cdData = await codeRes.json();
-          if (Array.isArray(cdData)) setCodeList(cdData);
-        }
-        if (vaultRes && vaultRes.ok) {
-          const vData = await vaultRes.json();
-          if (Array.isArray(vData)) setVaultFilesList(vData);
-        }
-        if (notesRes && notesRes.ok) {
-          const nData = await notesRes.json();
-          if (Array.isArray(nData)) setNotesList(nData);
-        }
-      } catch (err) {
-        console.warn("Telemetry fetch fallback used:", err);
-      } finally {
-        setLoading(false);
-      }
+      } catch {}
     };
 
-    fetchDashboardData();
+    const userId = currentUser?.id || '';
+    const uidParam = userId ? `?user_id=${userId}` : '';
+
+    // Launch all fetches concurrently - each renders immediately upon arrival
+    Promise.allSettled([
+      safeFetch('/api/telemetry/stats', (sData) => setTelemetry(prev => {
+        const updated = { ...prev, ...sData };
+        cacheObj.telemetry = updated;
+        return updated;
+      })),
+      safeFetch('/api/quotes', (qData) => { if (Array.isArray(qData) && qData.length > 0) setQuotes(qData); }, 'quotes'),
+      safeFetch(`/api/workspaces${uidParam}`, (wData) => { if (Array.isArray(wData)) setRecentWorkspaces(wData); }, 'recentWorkspaces'),
+      safeFetch(`/api/research/audits${uidParam}`, (aData) => { if (Array.isArray(aData)) setRecentAudits(aData); }, 'recentAudits'),
+      safeFetch('/api/admin/system-stats', (admData) => setAdminStats(admData), 'adminStats'),
+      safeFetch(`/api/student/flashcards${uidParam}`, (cData) => { if (Array.isArray(cData)) setFlashcardsList(cData); }, 'flashcardsList'),
+      safeFetch(`/api/code/implementations${uidParam}`, (cdData) => { if (Array.isArray(cdData)) setCodeList(cdData); }, 'codeList'),
+      safeFetch(`/api/vault/files${uidParam}`, (vData) => { if (Array.isArray(vData)) setVaultFilesList(vData); }, 'vaultFilesList'),
+      safeFetch(`/api/vault/notes${uidParam}`, (nData) => { if (Array.isArray(nData)) setNotesList(nData); }, 'notesList'),
+      safeFetch(`/api/telemetry/role-stats?role=${encodeURIComponent(activeRole || 'researcher')}${uidParam}`, (rsData) => setRoleGraphStats(rsData), 'roleGraphStats')
+    ]).finally(() => {
+      if (isMounted) setLoading(false);
+    });
+
+    return () => {
+      isMounted = false;
+    };
   }, [currentUser, activeRole]);
 
   // Quote Rotator

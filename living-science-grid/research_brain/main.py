@@ -2876,21 +2876,17 @@ async def analyze_math_equation(req: MathAnalyzeRequest):
     low_tex = raw_latex.lower()
     low_name = name.lower()
     # 1. Check if we have additional context via RAG
-    rag_context = ""
+    rag_context_snippets = []
     if req.paper_id:
         try:
-            rag_context, _ = await asyncio.to_thread(
-                rag_engine.retrieve_rag_context,
-                query=f"{name} {raw_latex}",
-                paper_id=str(req.paper_id),
-                top_k=2
-            )
+            chunks = await rag_engine.retrieve_rag_context(query=f"{name} {raw_latex}", paper_id=str(req.paper_id), top_k=2)
+            rag_context_snippets = [c["chunk_text"] for c in chunks if c.get("chunk_text")]
         except Exception as e:
             print(f"[DEBUG] [Math Analyze RAG] Context lookup note: {e}")
 
     extra_ctx = req.context or ""
-    if rag_context:
-        extra_ctx = (extra_ctx + "\n" + rag_context).strip()
+    if rag_context_snippets:
+        extra_ctx = (extra_ctx + "\n" + "\n".join(rag_context_snippets)).strip()
 
     # 2. Prompt Local SLM / LLM for full mathematical reasoning
     prompt = (
@@ -2921,7 +2917,7 @@ async def analyze_math_equation(req: MathAnalyzeRequest):
     )
 
     system_prompt = rag_engine.build_system_prompt("mathematician")
-    llm_analysis = await robust_llm_json(prompt, max_retries=1, max_tokens=260, system_prompt=system_prompt)
+    llm_analysis = await robust_llm_json(prompt, max_retries=2, system_prompt=system_prompt)
 
     # 3. Extract or fallback cleanly
     if llm_analysis and isinstance(llm_analysis, dict) and llm_analysis.get("variables"):
@@ -3355,12 +3351,13 @@ async def execute_rigor_audit(req: RigorAuditRequest):
     rag_context = ""
     if target_paper_id:
         try:
-            rag_context, _ = await asyncio.to_thread(
-                rag_engine.retrieve_rag_context,
+            chunks = await rag_engine.retrieve_rag_context(
                 query="methodology theoretical formulation empirical validation ablation baseline limitations",
                 paper_id=target_paper_id,
-                top_k=4
+                top_k=5
             )
+            if chunks:
+                rag_context = "\n\n".join([f"[{c.get('citation', 'Chunk')}] {c.get('chunk_text', '')}" for c in chunks])
         except Exception as re_err:
             print(f"[DEBUG] [Rigor Audit RAG] Retrieval note: {re_err}")
 
@@ -3399,7 +3396,7 @@ async def execute_rigor_audit(req: RigorAuditRequest):
         "}"
     )
 
-    audit_data = await robust_llm_json(prompt, max_retries=1, max_tokens=380, system_prompt=system_prompt)
+    audit_data = await robust_llm_json(prompt, max_retries=2, system_prompt=system_prompt)
 
     if not audit_data or not isinstance(audit_data, dict) or "rigor_score" not in audit_data:
         dynamic_eval = analyze_manuscript_dynamically(req.title or "Research Manuscript", req.content or "")
@@ -3879,7 +3876,7 @@ async def check_ai_writing_patterns(req: AIPatternsCheckRequest):
             "Respond strictly in valid JSON:\n"
             '{"ai_probability": float (0-100), "reasoning": "brief stylistic evaluation"}'
         )
-        llm_style = await robust_llm_json(llm_prompt, max_retries=1, max_tokens=150)
+        llm_style = await robust_llm_json(llm_prompt, max_retries=1)
         if llm_style and isinstance(llm_style, dict) and "ai_probability" in llm_style:
             l_prob = float(llm_style["ai_probability"])
             ai_prob = max(4.0, min(94.0, round(0.55 * ai_prob + 0.45 * l_prob, 1)))
@@ -4201,13 +4198,9 @@ async def get_student_flashcards(user_id: Optional[str] = None, paper_title: Opt
             p_clean = paper_title.replace("%", "").strip()
             paper_context = ""
             try:
-                rag_ctx, _ = await asyncio.to_thread(
-                    rag_engine.retrieve_rag_context,
-                    query=f"architecture methodology formulation {p_clean}",
-                    top_k=3
-                )
-                if rag_ctx:
-                    paper_context = rag_ctx
+                chunks = await rag_engine.retrieve_rag_context(query=f"architecture methodology formulation {p_clean}", top_k=4)
+                if chunks:
+                    paper_context = "\n".join([c["chunk_text"] for c in chunks if c.get("chunk_text")])
             except Exception as e:
                 print(f"[DEBUG] [Flashcards RAG] Note: {e}")
 
@@ -4226,7 +4219,7 @@ async def get_student_flashcards(user_id: Optional[str] = None, paper_title: Opt
                 "}"
             )
             system_prompt = rag_engine.build_system_prompt("student_tutor")
-            llm_cards = await robust_llm_json(prompt, max_retries=1, max_tokens=350, system_prompt=system_prompt)
+            llm_cards = await robust_llm_json(prompt, max_retries=2, system_prompt=system_prompt)
 
             cards_to_insert = []
             if llm_cards and isinstance(llm_cards, dict) and llm_cards.get("cards"):
@@ -4350,7 +4343,7 @@ async def generate_flashcards_from_text(payload: dict):
         "}"
     )
     system_prompt = rag_engine.build_system_prompt("student_tutor")
-    llm_cards = await robust_llm_json(prompt, max_retries=1, max_tokens=350, system_prompt=system_prompt)
+    llm_cards = await robust_llm_json(prompt, max_retries=2, system_prompt=system_prompt)
 
     generated = []
     if llm_cards and isinstance(llm_cards, dict) and llm_cards.get("cards"):
@@ -4624,13 +4617,9 @@ async def extract_pytorch_algorithm(payload: dict):
     paper_context = content
     if not paper_context or len(paper_context) < 300:
         try:
-            rag_ctx, _ = await asyncio.to_thread(
-                rag_engine.retrieve_rag_context,
-                query=f"algorithm forward pass architecture {title}",
-                top_k=3
-            )
-            if rag_ctx:
-                paper_context = rag_ctx
+            chunks = await rag_engine.retrieve_rag_context(query=f"algorithm forward pass architecture {title}", top_k=3)
+            if chunks:
+                paper_context = "\n\n".join([c["chunk_text"] for c in chunks if c.get("chunk_text")])
         except Exception as e:
             print(f"[DEBUG] [Code Extract RAG] Note: {e}")
 
@@ -4648,7 +4637,7 @@ async def extract_pytorch_algorithm(payload: dict):
     )
 
     system_prompt = rag_engine.build_system_prompt("coder")
-    llm_code = await robust_llm_json(prompt, max_retries=1, max_tokens=450, system_prompt=system_prompt)
+    llm_code = await robust_llm_json(prompt, max_retries=2, system_prompt=system_prompt)
 
     if llm_code and isinstance(llm_code, dict) and llm_code.get("code_snippet"):
         algo_name = str(llm_code.get("algorithm_name", f"{clean_name}Layer")).strip()

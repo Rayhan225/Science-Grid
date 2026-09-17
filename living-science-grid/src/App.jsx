@@ -1,17 +1,33 @@
 // src/App.jsx
-import React, { useState, useEffect } from 'react';
-import LandingPage from './components/LandingPage';
-import Dashboard from './components/Dashboard';
-import MathEvaluator from './components/MathEvaluator';
-import InsightLens from './components/InsightLens';
+import React, { useState, useEffect, Suspense } from 'react';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
-import Settings from './components/Settings';
-import CentralVault from './components/CentralVault';
-import DomainMatrix from './components/DomainMatrix';
-import ValidationRigor from './components/ValidationRigor';
 import { Send, X, RefreshCw, Lock, UserPlus, LogIn, Microscope, GraduationCap, Code2, Cpu, ShieldCheck, ArrowRight, Sparkles } from 'lucide-react';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
+
+// Dynamic lazy imports for instant initial bundle loading
+const LandingPage = React.lazy(() => import('./components/LandingPage'));
+const Dashboard = React.lazy(() => import('./components/Dashboard'));
+const MathEvaluator = React.lazy(() => import('./components/MathEvaluator'));
+const InsightLens = React.lazy(() => import('./components/InsightLens'));
+const Settings = React.lazy(() => import('./components/Settings'));
+const CentralVault = React.lazy(() => import('./components/CentralVault'));
+const DomainMatrix = React.lazy(() => import('./components/DomainMatrix'));
+const ValidationRigor = React.lazy(() => import('./components/ValidationRigor'));
+
+function ViewLoader() {
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center h-full w-full min-h-[300px]">
+      <div className="relative flex items-center justify-center">
+        <div className="w-12 h-12 rounded-full border-2 border-cyan-500/20 border-t-cyan-400 animate-spin" />
+        <div className="absolute w-6 h-6 rounded-full border-2 border-violet-500/20 border-b-violet-400 animate-spin" style={{ animationDirection: 'reverse', animationDuration: '0.8s' }} />
+      </div>
+      <div className="mt-4 font-mono text-[11px] tracking-widest text-slate-400 uppercase animate-pulse">
+        Initializing Engine...
+      </div>
+    </div>
+  );
+}
 
 function AuthModal({ initialMode = 'login', onClose, onLoginSuccess }) {
   const { themeClasses, isLight } = useTheme();
@@ -553,8 +569,18 @@ function AppContent({ settings, setSettings, currentUser, onUpdateUser, onLogout
   const { themeClasses } = useTheme();
   
   const [currentView, setCurrentView] = useState('dashboard');
+  const [visitedViews, setVisitedViews] = useState(() => new Set(['dashboard']));
   const [telemetry, setTelemetry] = useState({ totalPages: 0, isolatedPages: 0, rawFormulas: 0, validatedNodes: 0 });
   const [status, setStatus] = useState("Ready");
+
+  useEffect(() => {
+    setVisitedViews(prev => {
+      if (prev.has(currentView)) return prev;
+      const next = new Set(prev);
+      next.add(currentView);
+      return next;
+    });
+  }, [currentView]);
 
   return (
     <div className={`h-screen w-screen flex overflow-hidden select-none relative transition-colors duration-700 ${themeClasses.bgMain}`}>
@@ -570,40 +596,56 @@ function AppContent({ settings, setSettings, currentUser, onUpdateUser, onLogout
         </div>
         
         <main className={`flex-1 overflow-hidden relative flex flex-col p-0 w-full h-full min-h-0 ${themeClasses.bgMain}`}>
-          <div className={currentView === 'dashboard' ? 'flex-1 animate-fadeIn flex flex-col h-full min-h-0 overflow-hidden' : 'hidden'}>
-            <Dashboard onSelectTool={setCurrentView} telemetry={telemetry} currentUser={currentUser} currentView={currentView} />
-          </div>
-          
-          <div className={(currentView === 'settings' || currentView === 'profile-settings') ? 'flex-1 animate-fadeIn flex flex-col p-6 h-full overflow-y-auto custom-scrollbar' : 'hidden'}>
-            <Settings 
-              settings={settings} 
-              setSettings={setSettings} 
-              currentUser={currentUser} 
-              onUpdateUser={onUpdateUser}
-              onLogout={onLogout}
-              setCurrentView={setCurrentView}
-            />
-          </div>
-          
-          <div className={currentView === 'central-vault' ? 'flex-1 animate-fadeIn flex flex-col h-full' : 'hidden'}>
-            <CentralVault setCurrentView={setCurrentView} />
-          </div>
-          
-          <div className={currentView === 'math-evaluator' ? 'flex-1 animate-fadeIn flex flex-col h-full' : 'hidden'}>
-            <MathEvaluator telemetry={telemetry} setTelemetry={setTelemetry} status={status} setStatus={setStatus} setAiContext={() => {}} />
-          </div>
-          
-          <div className={currentView === 'insight-lens' ? 'flex-1 animate-fadeIn flex flex-col h-full' : 'hidden'}>
-            <InsightLens setStatus={setStatus} setCurrentView={setCurrentView} />
-          </div>
-          
-          <div className={currentView === 'domain-matrix' ? 'flex-1 animate-fadeIn flex flex-col h-full' : 'hidden'}>
-            <DomainMatrix setStatus={setStatus} setCurrentView={setCurrentView} />
-          </div>
+          <Suspense fallback={<ViewLoader />}>
+            {visitedViews.has('dashboard') && (
+              <div className={currentView === 'dashboard' ? 'flex-1 animate-fadeIn flex flex-col h-full min-h-0 overflow-hidden' : 'hidden'}>
+                <Dashboard onSelectTool={setCurrentView} telemetry={telemetry} currentUser={currentUser} currentView={currentView} />
+              </div>
+            )}
+            
+            {(visitedViews.has('settings') || visitedViews.has('profile-settings')) && (
+              <div className={(currentView === 'settings' || currentView === 'profile-settings') ? 'flex-1 animate-fadeIn flex flex-col p-6 h-full overflow-y-auto custom-scrollbar' : 'hidden'}>
+                <Settings 
+                  settings={settings} 
+                  setSettings={setSettings} 
+                  currentUser={currentUser} 
+                  onUpdateUser={onUpdateUser}
+                  onLogout={onLogout}
+                  setCurrentView={setCurrentView}
+                />
+              </div>
+            )}
+            
+            {visitedViews.has('central-vault') && (
+              <div className={currentView === 'central-vault' ? 'flex-1 animate-fadeIn flex flex-col h-full' : 'hidden'}>
+                <CentralVault setCurrentView={setCurrentView} />
+              </div>
+            )}
+            
+            {visitedViews.has('math-evaluator') && (
+              <div className={currentView === 'math-evaluator' ? 'flex-1 animate-fadeIn flex flex-col h-full' : 'hidden'}>
+                <MathEvaluator telemetry={telemetry} setTelemetry={setTelemetry} status={status} setStatus={setStatus} setAiContext={() => {}} />
+              </div>
+            )}
+            
+            {visitedViews.has('insight-lens') && (
+              <div className={currentView === 'insight-lens' ? 'flex-1 animate-fadeIn flex flex-col h-full' : 'hidden'}>
+                <InsightLens setStatus={setStatus} setCurrentView={setCurrentView} />
+              </div>
+            )}
+            
+            {visitedViews.has('domain-matrix') && (
+              <div className={currentView === 'domain-matrix' ? 'flex-1 animate-fadeIn flex flex-col h-full' : 'hidden'}>
+                <DomainMatrix setStatus={setStatus} setCurrentView={setCurrentView} />
+              </div>
+            )}
 
-          <div className={currentView === 'validation-rigor' ? 'flex-1 animate-fadeIn flex flex-col h-full' : 'hidden'}>
-            <ValidationRigor setStatus={setStatus} setCurrentView={setCurrentView} />
-          </div>
+            {visitedViews.has('validation-rigor') && (
+              <div className={currentView === 'validation-rigor' ? 'flex-1 animate-fadeIn flex flex-col h-full' : 'hidden'}>
+                <ValidationRigor setStatus={setStatus} setCurrentView={setCurrentView} />
+              </div>
+            )}
+          </Suspense>
         </main>
       </div>
     </div>
@@ -678,10 +720,12 @@ export default function App() {
   if (!currentUser) {
     return (
       <ThemeProvider theme={settings.theme} setTheme={handleThemeChange}>
-        <LandingPage 
-          onLaunch={() => setAuthModalMode('login')} 
-          onOpenAuth={(mode) => setAuthModalMode(mode)} 
-        />
+        <Suspense fallback={<ViewLoader />}>
+          <LandingPage 
+            onLaunch={() => setAuthModalMode('login')} 
+            onOpenAuth={(mode) => setAuthModalMode(mode)} 
+          />
+        </Suspense>
         {authModalMode && (
           <AuthModal 
             initialMode={authModalMode} 

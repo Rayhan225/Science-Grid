@@ -10,40 +10,14 @@ from typing import List, Optional, Dict, Any
 from pathlib import Path
 
 try:
-    from llama_cpp import Llama, LlamaRAMCache
+    from llama_cpp import Llama
 except ImportError:
     Llama = None
-    LlamaRAMCache = None
     print("[WARN] [SLM Engine] llama-cpp-python not installed. Run: pip install llama-cpp-python")
 
 # ── Model path resolution ──
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
-_CANDIDATE_PATHS = [
-    _PROJECT_ROOT / "models" / "llama-3.2-3b-instruct.Q5_K_M.gguf",
-    Path("E:/Downloads/Llama-3.2-3B-Instruct.Q5_K_M.gguf"),
-    Path("E:/Science Grid - Copy - Copy/living-science-grid/models/llama-3.2-3b-instruct.Q5_K_M.gguf"),
-    Path("E:/Science-Grid/living-science-grid/models/llama-3.2-3b-instruct.Q5_K_M.gguf"),
-]
-
-def resolve_model_path() -> Path:
-    """Find the GGUF model across candidate project and local storage paths."""
-    for p in _CANDIDATE_PATHS:
-        try:
-            if p.exists() and p.stat().st_size > 1_000_000_000:
-                return p
-        except Exception:
-            pass
-    return _CANDIDATE_PATHS[0]
-
-def get_optimal_threads() -> int:
-    """
-    Calculate optimal thread count for llama.cpp on AMD Zen/Intel CPUs.
-    Using logical threads (hyperthreads) on SMT CPUs causes severe cache line contention.
-    Physical cores (e.g. 8 on Ryzen 7 5800U) maximize AVX2 throughput.
-    """
-    total = os.cpu_count() or 4
-    physical = total // 2 if total > 4 else total
-    return max(2, min(8, physical))
+_MODEL_PATH = _PROJECT_ROOT / "models" / "llama-3.2-3b-instruct.Q5_K_M.gguf"
 
 # Singleton instance & thread-safety lock
 _llm_instance = None
@@ -51,7 +25,7 @@ _inference_lock = threading.Lock()
 
 
 def get_model():
-    """Load and return the singleton LLM instance with hardware-tuned settings."""
+    """Load and return the singleton LLM instance."""
     global _llm_instance
     if _llm_instance is None:
         if Llama is None:
@@ -59,38 +33,25 @@ def get_model():
                 "llama-cpp-python is not installed. "
                 "Run: pip install llama-cpp-python"
             )
-        resolved_path = resolve_model_path()
-        if not resolved_path.exists():
+        if not _MODEL_PATH.exists():
             raise FileNotFoundError(
-                f"Model file not found: {resolved_path}\n"
-                f"Checked candidate locations: {[str(p) for p in _CANDIDATE_PATHS]}"
+                f"Model file not found: {_MODEL_PATH}\n"
+                f"Expected at: models/llama-3.2-3b-instruct.Q5_K_M.gguf"
             )
 
-        n_threads = get_optimal_threads()
+        n_threads = os.cpu_count() or 4
         _llm_instance = Llama(
-            model_path=str(resolved_path),
-            n_ctx=2048,
-            n_batch=512,
+            model_path=str(_MODEL_PATH),
+            n_ctx=4096,
             n_threads=n_threads,
             n_threads_batch=n_threads,
-            n_gpu_layers=0,       # CPU-only AVX2
+            n_gpu_layers=0,       # CPU-only
             verbose=False,
             seed=42,              # Reproducibility
-            use_mmap=True,
         )
-
-        if LlamaRAMCache is not None:
-            try:
-                # 256MB RAM cache for prompt prefix KV states
-                cache = LlamaRAMCache(capacity_bytes=256 * 1024 * 1024)
-                _llm_instance.set_cache(cache)
-                print("[OK] [SLM Engine] Attached 256MB LlamaRAMCache for prefix reuse.")
-            except Exception as cache_err:
-                print(f"[WARN] [SLM Engine] Could not attach LlamaRAMCache: {cache_err}")
-
         print(
-            f"[OK] [SLM Engine] Loaded {resolved_path.name} "
-            f"| ctx=2048 | batch=512 | threads={n_threads} | AVX2 CPU | deterministic"
+            f"[OK] [SLM Engine] Loaded {_MODEL_PATH.name} "
+            f"| ctx=4096 | threads={n_threads} | CPU-only | deterministic"
         )
     return _llm_instance
 
@@ -158,8 +119,8 @@ def generate(
 
     with _inference_lock:
         tokens = llm.tokenize(formatted.encode("utf-8"))
-        # Native 2048 context window: leave at least max_tokens for response
-        max_allowed_input = 2048 - max_tokens - 32
+        # Native 4096 context window: leave at least max_tokens for response
+        max_allowed_input = 4096 - max_tokens - 32
         if len(tokens) > max_allowed_input:
             tokens = tokens[:max_allowed_input]
             formatted = llm.detokenize(tokens).decode("utf-8", errors="ignore")
@@ -192,17 +153,13 @@ def warmup():
 
 def get_model_info() -> dict:
     """Return metadata about the loaded model."""
-    active_path = resolve_model_path()
     return {
         "name": "llama-3.2-3b-instruct-q5km",
-        "file": active_path.name,
-        "path": str(active_path),
+        "file": _MODEL_PATH.name,
         "engine": "llama-cpp-python",
-        "device": "cpu-avx2",
-        "context_length": 2048,
-        "batch_size": 512,
-        "decoding": "greedy analytical",
-        "threads": get_optimal_threads(),
-        "ram_cache_enabled": LlamaRAMCache is not None,
+        "device": "cpu",
+        "context_length": 4096,
+        "decoding": "greedy (temperature=0.0, top_k=1)",
+        "threads": os.cpu_count() or 4,
         "loaded": _llm_instance is not None,
     }

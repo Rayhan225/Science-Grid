@@ -13,8 +13,6 @@ import psycopg2
 import psycopg2.extras
 from psycopg2.extras import RealDictCursor
 
-from psycopg2 import pool
-
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "postgresql://postgres.nxarpilggbxfoyfkywey:RayhanSourov%40123"
@@ -23,24 +21,10 @@ DATABASE_URL = os.getenv(
 )
 
 _connection = None
-_pool = None
-
-
-def get_pool():
-    """Retrieve or initialize the ThreadedConnectionPool."""
-    global _pool
-    if _pool is None:
-        try:
-            _pool = pool.ThreadedConnectionPool(minconn=2, maxconn=10, dsn=DATABASE_URL)
-            print("[OK] [DB Manager] Initialized ThreadedConnectionPool (min=2, max=10).")
-        except Exception as e:
-            print(f"[WARN] [DB Manager] Connection pool init failed: {e}")
-            _pool = None
-    return _pool
 
 
 def get_connection():
-    """Get or create the fallback standalone database connection."""
+    """Get or create the database connection."""
     global _connection
     if _connection is None or _connection.closed:
         _connection = psycopg2.connect(DATABASE_URL)
@@ -51,36 +35,17 @@ def get_connection():
 
 @contextmanager
 def get_cursor():
-    """Context manager for a pooled database cursor with auto commit/rollback."""
-    p = get_pool()
-    conn = None
-    borrowed_from_pool = False
-    if p is not None:
-        try:
-            conn = p.getconn()
-            conn.autocommit = True
-            borrowed_from_pool = True
-        except Exception:
-            conn = None
-
-    if conn is None:
-        conn = get_connection()
-        borrowed_from_pool = False
-
+    """Context manager for a database cursor with auto commit/rollback."""
+    conn = get_connection()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     try:
         yield cursor
+        conn.commit()
     except Exception:
-        if not conn.autocommit:
-            conn.rollback()
+        conn.rollback()
         raise
     finally:
         cursor.close()
-        if borrowed_from_pool and p is not None and conn is not None:
-            try:
-                p.putconn(conn)
-            except Exception:
-                pass
 
 
 def init_tables():
@@ -177,18 +142,6 @@ def init_tables():
                 CONSTRAINT unique_paper_analysis UNIQUE (paper_id, analysis_type)
             );
         """)
-
-        # Fast HNSW vector indexes for sub-millisecond cosine similarity search
-        try:
-            cur.execute("""
-                CREATE INDEX IF NOT EXISTS idx_chunks_embedding_hnsw 
-                ON document_chunks USING hnsw (embedding vector_cosine_ops);
-                CREATE INDEX IF NOT EXISTS idx_user_mem_embedding_hnsw 
-                ON user_memory_graph USING hnsw (embedding vector_cosine_ops);
-            """)
-        except Exception as hnsw_err:
-            print(f"[INFO] [DB Manager] HNSW index notice: {hnsw_err}")
-
     print(
         "[OK] [DB Manager] Core research and vector tables verified "
         "(papers, paper_sections, math_evaluations, audit_ledger, document_chunks, user_memory_graph, paper_analysis_cache)."
@@ -1004,21 +957,11 @@ def get_user_recent_memories(user_id: str, limit: int = 5) -> List[Dict]:
 
 
 # ══════════════════════════════════════════════════════════════
-# PAPER ANALYSIS CACHE (Memory + PostgreSQL Hybrid)
+# PAPER ANALYSIS CACHE
 # ══════════════════════════════════════════════════════════════
 
-_ANALYSIS_MEMORY_CACHE: Dict[tuple, Dict] = {}
-_MAX_ANALYSIS_CACHE = 1000
-
-
 def get_cached_paper_analysis(paper_id: str, analysis_type: str) -> Optional[Dict]:
-    """Fetch cached analysis (matrix digest, rigor audit, math equations). Checks fast in-memory cache first."""
-    if not paper_id or not analysis_type:
-        return None
-    cache_key = (str(paper_id), str(analysis_type))
-    if cache_key in _ANALYSIS_MEMORY_CACHE:
-        return _ANALYSIS_MEMORY_CACHE[cache_key]
-
+    """Fetch cached analysis (matrix digest, rigor audit, math equations)."""
     with get_cursor() as cur:
         cur.execute(
             """SELECT cached_data, updated_at FROM paper_analysis_cache 
@@ -1026,22 +969,11 @@ def get_cached_paper_analysis(paper_id: str, analysis_type: str) -> Optional[Dic
             (paper_id, analysis_type)
         )
         row = cur.fetchone()
-        if row and row.get("cached_data"):
-            data = dict(row["cached_data"])
-            if len(_ANALYSIS_MEMORY_CACHE) < _MAX_ANALYSIS_CACHE:
-                _ANALYSIS_MEMORY_CACHE[cache_key] = data
-            return data
-        return None
+        return dict(row["cached_data"]) if row else None
 
 
 def set_cached_paper_analysis(paper_id: str, analysis_type: str, data: Dict) -> bool:
-    """Store or update cached paper analysis in both memory and PostgreSQL."""
-    if not paper_id or not analysis_type:
-        return False
-    cache_key = (str(paper_id), str(analysis_type))
-    if len(_ANALYSIS_MEMORY_CACHE) < _MAX_ANALYSIS_CACHE:
-        _ANALYSIS_MEMORY_CACHE[cache_key] = data
-
+    """Store or update cached paper analysis."""
     with get_cursor() as cur:
         cur.execute(
             """INSERT INTO paper_analysis_cache (cache_id, paper_id, analysis_type, cached_data, updated_at)
@@ -1059,15 +991,8 @@ def set_cached_paper_analysis(paper_id: str, analysis_type: str, data: Dict) -> 
 # ══════════════════════════════════════════════════════════════
 
 def close():
-    """Close the database connection and connection pool."""
-    global _connection, _pool
-    if _pool:
-        try:
-            _pool.closeall()
-            _pool = None
-            print("[INFO] [DB Manager] Connection pool closed.")
-        except Exception:
-            pass
+    """Close the database connection."""
+    global _connection
     if _connection and not _connection.closed:
         _connection.close()
         _connection = None

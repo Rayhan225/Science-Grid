@@ -4,7 +4,6 @@
 # Semantic Sliding Window Chunking, pgvector Search & User Memory
 # ═══════════════════════════════════════════════════════════════════
 
-import os
 import re
 import math
 import uuid
@@ -20,76 +19,40 @@ except ImportError:
 
 import db_manager
 
-# Singleton embedder instance & in-memory vector cache
+# Singleton embedder instance
 _embedder_instance = None
-_VECTOR_CACHE: Dict[str, List[float]] = {}
-_MAX_CACHE_SIZE = 8192
-
-
-def _get_optimal_threads() -> int:
-    total = os.cpu_count() or 4
-    physical = total // 2 if total > 4 else total
-    return max(2, min(8, physical))
 
 
 def get_embedder():
-    """Retrieve or initialize the singleton 384-dimensional embedding model with tuned ONNX threading."""
+    """Retrieve or initialize the singleton 384-dimensional embedding model."""
     global _embedder_instance
     if _embedder_instance is None:
         if not FASTEMBED_AVAILABLE or TextEmbedding is None:
             raise RuntimeError("fastembed is not available in current Python environment.")
-        n_threads = _get_optimal_threads()
-        try:
-            _embedder_instance = TextEmbedding(
-                model_name="sentence-transformers/all-MiniLM-L6-v2",
-                threads=n_threads
-            )
-        except TypeError:
-            _embedder_instance = TextEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
-        print(f"[OK] [RAG Engine] Initialized fastembed (all-MiniLM-L6-v2, 384-dim, ONNX CPU, threads={n_threads}).")
+        # Uses sentence-transformers/all-MiniLM-L6-v2 (384 dims, ONNX, CPU-optimized)
+        _embedder_instance = TextEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
+        print("[OK] [RAG Engine] Initialized fastembed (all-MiniLM-L6-v2, 384-dim, ONNX CPU).")
     return _embedder_instance
 
 
 def embed_text(text: str) -> List[float]:
-    """Generate a single 384-dimensional embedding vector (cached in-memory for sub-millisecond retrieval)."""
-    clean_text = (text or "").strip() or "empty"
-    if clean_text in _VECTOR_CACHE:
-        return _VECTOR_CACHE[clean_text]
+    """Generate a single 384-dimensional embedding vector."""
     embedder = get_embedder()
+    clean_text = (text or "").strip()
+    if not clean_text:
+        clean_text = "empty"
     embeddings = list(embedder.embed([clean_text]))
-    vec = [float(x) for x in embeddings[0]]
-    if len(_VECTOR_CACHE) < _MAX_CACHE_SIZE:
-        _VECTOR_CACHE[clean_text] = vec
-    return vec
+    return [float(x) for x in embeddings[0]]
 
 
 def embed_texts(texts: List[str]) -> List[List[float]]:
-    """Batch generate 384-dimensional embedding vectors with hybrid memory caching."""
+    """Batch generate 384-dimensional embedding vectors."""
     if not texts:
         return []
-    
-    clean_texts = [(t.strip() if (t and t.strip()) else "empty") for t in texts]
-    results: List[Optional[List[float]]] = [None] * len(clean_texts)
-    missing_indices: List[int] = []
-    missing_texts: List[str] = []
-
-    for i, ct in enumerate(clean_texts):
-        if ct in _VECTOR_CACHE:
-            results[i] = _VECTOR_CACHE[ct]
-        else:
-            missing_indices.append(i)
-            missing_texts.append(ct)
-
-    if missing_texts:
-        embedder = get_embedder()
-        computed = list(embedder.embed(missing_texts))
-        for idx, emb in zip(missing_indices, computed):
-            vec = [float(x) for x in emb]
-            results[idx] = vec
-            if len(_VECTOR_CACHE) < _MAX_CACHE_SIZE:
-                _VECTOR_CACHE[clean_texts[idx]] = vec
-
-    return [r for r in results if r is not None]
+    embedder = get_embedder()
+    clean_texts = [t.strip() if (t and t.strip()) else "empty" for t in texts]
+    embeddings = list(embedder.embed(clean_texts))
+    return [[float(x) for x in emb] for emb in embeddings]
 
 
 # ═══════════════════════════════════════════════════════════════════
