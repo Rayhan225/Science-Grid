@@ -1,10 +1,10 @@
 // server/index.js - POSTGRESQL & SUPABASE DATABASE BACKEND
-import express from 'express';
-import pg from 'pg';
 import cors from 'cors';
+import express from 'express';
 import fs from 'fs';
-import path from 'path';
 import multer from 'multer';
+import path from 'path';
+import pg from 'pg';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -16,6 +16,19 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '150mb' }));
 app.use(express.urlencoded({ limit: '150mb', extended: true }));
+
+// FastAPI backend base - used for proxy fallbacks (e.g. LaTeX PDF engine)
+const FASTAPI_BASE = process.env.FASTAPI_BASE || 'http://127.0.0.1:8000';
+
+// Simple liveness/readiness probe (was missing - tests previously got 404)
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'scholargrid-express',
+    port: 5000,
+    time: new Date().toISOString()
+  });
+});
 
 // Supabase Transaction Pooler Connection Configuration
 const pool = new Pool({
@@ -29,13 +42,13 @@ const bootstrapDatabase = async () => {
   try {
     const client = await pool.connect();
     console.log("🚀 Connected securely to Supabase Database.");
-    
+
     // 1. File System Table
     await client.query(`
       CREATE TABLE IF NOT EXISTS file_system (
         id SERIAL PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
-        type VARCHAR(50) NOT NULL, 
+        type VARCHAR(50) NOT NULL,
         parent_id INT REFERENCES file_system(id) ON DELETE CASCADE,
         text_content TEXT,
         processing_status VARCHAR(50) DEFAULT 'unprocessed',
@@ -112,34 +125,34 @@ app.post('/api/domain-matrix', async (req, res) => {
   const { id, title, timestamp, lastAccessed, isPinned, selectedFiles, matrixData } = req.body;
   try {
     await pool.query(
-      `INSERT INTO domain_workspaces (id, title, timestamp, last_accessed, is_pinned, selected_files, matrix_data) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7) 
-       ON CONFLICT (id) DO UPDATE SET 
+      `INSERT INTO domain_workspaces (id, title, timestamp, last_accessed, is_pinned, selected_files, matrix_data)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (id) DO UPDATE SET
          title = EXCLUDED.title,
-         last_accessed = EXCLUDED.last_accessed, 
+         last_accessed = EXCLUDED.last_accessed,
          is_pinned = EXCLUDED.is_pinned,
-         selected_files = EXCLUDED.selected_files, 
+         selected_files = EXCLUDED.selected_files,
          matrix_data = EXCLUDED.matrix_data`,
       [
-        id, 
-        title, 
-        timestamp, 
-        lastAccessed, 
+        id,
+        title,
+        timestamp,
+        lastAccessed,
         isPinned || false,
-        JSON.stringify(selectedFiles || []), 
+        JSON.stringify(selectedFiles || []),
         JSON.stringify(matrixData || [])
       ]
     );
     res.json({ status: 'success' });
-  } catch (err) { 
-    res.status(500).json({ error: err.message }); 
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
 app.get('/api/domain-matrix', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM domain_workspaces ORDER BY is_pinned DESC, last_accessed DESC');
-    res.json(result.rows.map(r => ({ 
+    res.json(result.rows.map(r => ({
       id: r.id,
       title: r.title,
       timestamp: r.timestamp,
@@ -148,8 +161,8 @@ app.get('/api/domain-matrix', async (req, res) => {
       selectedFiles: JSON.parse(r.selected_files || '[]'),
       matrixData: JSON.parse(r.matrix_data || '[]')
     })));
-  } catch (err) { 
-    res.status(500).json({ error: err.message }); 
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -177,8 +190,8 @@ app.delete('/api/domain-matrix/:id', async (req, res) => {
   try {
     await pool.query('DELETE FROM domain_workspaces WHERE id = $1', [req.params.id]);
     res.json({ status: 'success' });
-  } catch (err) { 
-    res.status(500).json({ error: err.message }); 
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -218,7 +231,7 @@ app.put('/api/library/cache/:id', async (req, res) => {
 app.get('/api/library', async (req, res) => {
   const parentId = req.query.parentId === 'null' || !req.query.parentId ? null : parseInt(req.query.parentId);
   try {
-    const query = parentId 
+    const query = parentId
       ? pool.query('SELECT id, name, type, parent_id, uploaded_at FROM file_system WHERE parent_id = $1 ORDER BY type DESC, name ASC', [parentId])
       : pool.query('SELECT id, name, type, parent_id, uploaded_at FROM file_system WHERE parent_id IS NULL ORDER BY type DESC, name ASC');
     const result = await query;
@@ -249,21 +262,47 @@ app.get('/api/vault/files', async (req, res) => {
   }
 });
 
+// The LaTeX PDF-compile engine lives on the FastAPI backend (:8000); expose the
+// same status surface here so clients hitting the Express port also resolve it.
+app.get('/api/latex/pdf-engine', async (req, res) => {
+  try {
+    const upstream = await fetch(`${FASTAPI_BASE}/api/latex/pdf-engine`, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(10000)
+    });
+    const body = await upstream.text();
+    res.status(upstream.status).type('application/json').send(body);
+  } catch (err) {
+    res.status(502).json({ status: 'error', detail: `FastAPI pdf-engine unreachable: ${err.message}` });
+  }
+});
+
 app.post('/api/library', async (req, res) => {
   const { name, type, parentId, textContent } = req.body;
+  if (!name || !type) return res.status(400).json({ error: 'name and type are required' });
   const targetParent = parentId || null;
   try {
-    const result = await pool.query(
-      `INSERT INTO file_system (name, type, parent_id, text_content, processing_status) 
-       VALUES ($1, $2, $3, $4, 'unprocessed') 
-       ON CONFLICT (name, parent_id) 
-       DO UPDATE SET text_content = EXCLUDED.text_content, processing_status = 'unprocessed', uploaded_at = CURRENT_TIMESTAMP
+    // The file_system table's unique constraint is UNIQUE (name, parent_id), and
+    // Postgres treats NULLs as distinct, so a naive `ON CONFLICT (name, parent_id)`
+    // upsert throws "no unique or exclusion constraint matching the ON CONFLICT
+    // specification". Use an explicit update-first / insert-on-miss pattern instead.
+    const updated = await pool.query(
+      `UPDATE file_system
+          SET text_content = $1, processing_status = 'unprocessed', uploaded_at = CURRENT_TIMESTAMP
+        WHERE name = $2 AND type = $3 AND parent_id IS NOT DISTINCT FROM $4
+        RETURNING id, name, type, text_content`,
+      [textContent || '', name, type, targetParent]
+    );
+    if (updated.rows.length > 0) {
+      return res.status(200).json(updated.rows[0]);
+    }
+    const inserted = await pool.query(
+      `INSERT INTO file_system (name, type, parent_id, text_content, processing_status)
+       VALUES ($1, $2, $3, $4, 'unprocessed')
        RETURNING id, name, type, text_content`,
       [name, type, targetParent, textContent || '']
     );
-
-    const newFile = result.rows[0];
-    res.status(201).json(newFile);
+    res.status(201).json(inserted.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -296,10 +335,30 @@ app.delete('/api/library/:id', async (req, res) => {
 
 app.get('/api/library/quota', async (req, res) => {
   try {
-    const result = await pool.query("SELECT COUNT(*) FROM file_system WHERE type = 'file'");
-    res.json({ count: parseInt(result.rows[0].count), limit: 50 });
+    const latexFolderRes = await pool.query("SELECT id FROM file_system WHERE type = 'folder' AND name = 'LaTeX Projects' LIMIT 1");
+    const latexFolderId = latexFolderRes.rows.length > 0 ? latexFolderRes.rows[0].id : null;
+    let countQuery = "SELECT COUNT(*) FROM file_system WHERE type = 'file'";
+    let latexCountQuery = "SELECT COUNT(*) FROM file_system WHERE type = 'file' AND 1=0";
+    let params = [];
+    if (latexFolderId) {
+      countQuery = "SELECT COUNT(*) FROM file_system WHERE type = 'file' AND (parent_id IS NULL OR parent_id != $1)";
+      latexCountQuery = "SELECT COUNT(*) FROM file_system WHERE type = 'file' AND parent_id = $1";
+      params = [latexFolderId];
+    }
+    const [result, latexResult] = await Promise.all([
+      pool.query(countQuery, params),
+      latexFolderId ? pool.query(latexCountQuery, params) : Promise.resolve({ rows: [{ count: 0 }] })
+    ]);
+    res.json({
+      count: parseInt(result.rows[0].count),
+      limit: 100,
+      latex_count: parseInt(latexResult.rows[0].count),
+      latex_limit: "Unlimited",
+      used_bytes: parseInt(result.rows[0].count) * 45000,
+      total_bytes: 104857600
+    });
   } catch (err) {
-    res.status(500).json({ count: 0, limit: 50 });
+    res.status(500).json({ count: 0, limit: 100, latex_count: 0, latex_limit: "Unlimited" });
   }
 });
 
@@ -318,7 +377,7 @@ app.get('/api/library/file/:id', async (req, res) => {
   try {
     const result = await pool.query('SELECT name, text_content FROM file_system WHERE id = $1 LIMIT 1', [req.params.id]);
     if (result.rows.length === 0) return res.status(404).json({ error: "File not found" });
-    
+
     const fileData = result.rows[0];
     if (fileData.text_content && fileData.text_content.startsWith('data:application/pdf;base64,')) {
       const base64Data = fileData.text_content.replace('data:application/pdf;base64,', '');
@@ -340,31 +399,31 @@ app.post('/api/workspaces', async (req, res) => {
   const { id, title, timestamp, lastAccessed, isPinned, paperSummary, chatHistory, stateData } = req.body;
   try {
     await pool.query(
-      `INSERT INTO workspaces (id, title, timestamp, last_accessed, is_pinned, paper_summary, chat_history, state_data) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
-       ON CONFLICT (id) DO UPDATE SET 
+      `INSERT INTO workspaces (id, title, timestamp, last_accessed, is_pinned, paper_summary, chat_history, state_data)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (id) DO UPDATE SET
          title = EXCLUDED.title,
-         last_accessed = EXCLUDED.last_accessed, 
-         is_pinned = EXCLUDED.is_pinned, 
-         paper_summary = EXCLUDED.paper_summary, 
+         last_accessed = EXCLUDED.last_accessed,
+         is_pinned = EXCLUDED.is_pinned,
+         paper_summary = EXCLUDED.paper_summary,
          chat_history = EXCLUDED.chat_history,
          state_data = EXCLUDED.state_data`,
       [
-        id, title, timestamp, lastAccessed, isPinned || false, paperSummary, 
-        typeof chatHistory === 'string' ? chatHistory : JSON.stringify(chatHistory || []), 
+        id, title, timestamp, lastAccessed, isPinned || false, paperSummary,
+        typeof chatHistory === 'string' ? chatHistory : JSON.stringify(chatHistory || []),
         typeof stateData === 'string' ? stateData : JSON.stringify(stateData || {})
       ]
     );
     res.json({ status: 'success' });
-  } catch (err) { 
-    res.status(500).json({ error: err.message }); 
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
 app.get('/api/workspaces', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM workspaces ORDER BY is_pinned DESC, last_accessed DESC');
-    res.json(result.rows.map(r => ({ 
+    res.json(result.rows.map(r => ({
       id: r.id,
       title: r.title,
       timestamp: r.timestamp,
@@ -374,8 +433,8 @@ app.get('/api/workspaces', async (req, res) => {
       chatHistory: JSON.parse(r.chat_history || '[]'),
       stateData: JSON.parse(r.state_data || '{}')
     })));
-  } catch (err) { 
-    res.status(500).json({ error: err.message }); 
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -383,8 +442,8 @@ app.delete('/api/workspaces/:id', async (req, res) => {
   try {
     await pool.query('DELETE FROM workspaces WHERE id = $1', [req.params.id]);
     res.json({ status: 'success' });
-  } catch (err) { 
-    res.status(500).json({ error: err.message }); 
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -424,5 +483,5 @@ app.post('/api/vault/upload', upload.single('file'), (req, res) => {
   res.json({ status: 'success', url: `http://localhost:5000/uploads/${req.file.filename}`, title: req.file.originalname });
 });
 
-const PORT = 5000;
+const PORT = 5001;
 app.listen(PORT, () => console.log(`⚡ ScholarGrid Backend Engine running securely on port ${PORT}`));

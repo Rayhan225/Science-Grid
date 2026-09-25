@@ -1,0 +1,171 @@
+{
+  "suite": "LLM-Powered UI Testing (Selenium)",
+  "generated": "2026-09-24 03:53:20",
+  "passed": 23,
+  "failed": 0,
+  "warned": 0,
+  "total": 23,
+  "cases": [
+    {
+      "id": "LLM-Powered UI Testing (Selenium)-001",
+      "section": "General",
+      "name": "Register fresh @test.local account",
+      "status": "PASS",
+      "detail": "HTTP 200 uid=usr_1790200057511"
+    },
+    {
+      "id": "LLM-Powered UI Testing (Selenium)-002",
+      "section": "General",
+      "name": "Seed 2 vault papers via /api/library",
+      "status": "PASS",
+      "detail": "ids=[264, 265]"
+    },
+    {
+      "id": "LLM-Powered UI Testing (Selenium)-003",
+      "section": "General",
+      "name": "UI login as fresh account lands on Command Matrix",
+      "status": "PASS",
+      "detail": "sg_token stored; matrix rendered"
+    },
+    {
+      "id": "LLM-Powered UI Testing (Selenium)-004",
+      "section": "MathEvaluator \u2014 local LLM analysis rendered in equation deck",
+      "name": "Navigate to Math Evaluator view",
+      "status": "PASS",
+      "detail": "heading 'Math Evaluator Sandbox'"
+    },
+    {
+      "id": "LLM-Powered UI Testing (Selenium)-005",
+      "section": "MathEvaluator \u2014 local LLM analysis rendered in equation deck",
+      "name": "Equation deck renders Concept & Definition + WASM sandbox after run",
+      "status": "PASS",
+      "detail": "deck sections present after pipeline"
+    },
+    {
+      "id": "LLM-Powered UI Testing (Selenium)-006",
+      "section": "MathEvaluator \u2014 local LLM analysis rendered in equation deck",
+      "name": "MathEvaluator concept is real LLM prose (not fallback)",
+      "status": "PASS",
+      "detail": "concept[420]='Executive ContextThe provided research context contains a linear equation @xmath0 = 2*x + 1. This is an algebr'"
+    },
+    {
+      "id": "LLM-Powered UI Testing (Selenium)-007",
+      "section": "MathEvaluator \u2014 local LLM analysis rendered in equation deck",
+      "name": "WASM sandbox python subroutine is the LLM's executable snippet",
+      "status": "PASS",
+      "detail": "code_head=\"import numpy as np\\ndef evaluate(variables):\\n  x = variables['x']\\n  b = variables['b']\\n  y \""
+    },
+    {
+      "id": "LLM-Powered UI Testing (Selenium)-008",
+      "section": "MathEvaluator \u2014 local LLM analysis rendered in equation deck",
+      "name": "WASM sandbox executes the LLM snippet via Pyodide",
+      "status": "PASS",
+      "detail": "stdout=\"Python Subroutineimport numpy as np\\ndef evaluate(variables):\\n  x = variables['x']\\n  b = variables['b']\\n  y = 2 * x + b\\n \""
+    },
+    {
+      "id": "LLM-Powered UI Testing (Selenium)-009",
+      "section": "DomainMatrix \u2014 LLM comparative matrix rendered (no fallback rows)",
+      "name": "Navigate to DomainMatrix view",
+      "status": "PASS",
+      "detail": "'Run Engine' / vault sources visible"
+    },
+    {
+      "id": "LLM-Powered UI Testing (Selenium)-010",
+      "section": "DomainMatrix \u2014 LLM comparative matrix rendered (no fallback rows)",
+      "name": "Seeded vault papers listed as selectable cards",
+      "status": "PASS",
+      "detail": "card titles present (2 seeds)"
+    },
+    {
+      "id": "LLM-Powered UI Testing (Selenium)-011",
+      "section": "DomainMatrix \u2014 LLM comparative matrix rendered (no fallback rows)",
+      "name": "Comparative matrix table rendered after Run Engine",
+      "status": "PASS",
+      "detail": "header 'Paper & Year' present"
+    },
+    {
+      "id": "LLM-Powered UI Testing (Selenium)-012",
+      "section": "DomainMatrix \u2014 LLM comparative matrix rendered (no fallback rows)",
+      "name": "Matrix rows are REAL LLM extraction (no generic fallback records)",
+      "status": "PASS",
+      "detail": "fallback markers absent; len(body)=1578"
+    },
+    {
+      "id": "LLM-Powered UI Testing (Selenium)-013",
+      "section": "DomainMatrix \u2014 LLM comparative matrix rendered (no fallback rows)",
+      "name": "Matrix rows echo the seeded papers' real specifics",
+      "status": "PASS",
+      "detail": "BLEU/attention + ACDC/MRI signals present"
+    },
+    {
+      "id": "LLM-Powered UI Testing (Selenium)-014",
+      "section": "ValidationRigor \u2014 ScholarAudit LLM critique rendered",
+      "name": "Navigate to ScholarAudit view",
+      "status": "PASS",
+      "detail": "heading rendered"
+    },
+    {
+      "id": "LLM-Powered UI Testing (Selenium)-015",
+      "section": "ValidationRigor \u2014 ScholarAudit LLM critique rendered",
+      "name": "ScholarAudit results panel renders GRADE pill + synthesis",
+      "status": "PASS",
+      "detail": "results panel present"
+    },
+    {
+      "id": "LLM-Powered UI Testing (Selenium)-016",
+      "section": "ValidationRigor \u2014 ScholarAudit LLM critique rendered",
+      "name": "Peer-Review Synthesis is real LLM critique (not default placeholder)",
+      "status": "PASS",
+      "detail": "summary[538]=\"Manuscript 'Adaptive Sparse Attention and Temporal Consistency in Transformer Architectures' presents a coherent, methodological c\""
+    },
+    {
+      "id": "LLM-Powered UI Testing (Selenium)-017",
+      "section": "ValidationRigor \u2014 ScholarAudit LLM critique rendered",
+      "name": "Methodology Flags tab renders severity-filtered flags",
+      "status": "PASS",
+      "detail": "Showing N flag(s) control present"
+    },
+    {
+      "id": "LLM-Powered UI Testing (Selenium)-018",
+      "section": "ValidationRigor \u2014 ScholarAudit LLM critique rendered",
+      "name": "Article flags carry actionable content (severity/title text)",
+      "status": "PASS",
+      "detail": "flag count=4"
+    },
+    {
+      "id": "LLM-Powered UI Testing (Selenium)-019",
+      "section": "InsightLens \u2014 PDF mount + grounded copilot answering with pages",
+      "name": "Navigate to InsightLens view",
+      "status": "PASS",
+      "detail": "manual opened"
+    },
+    {
+      "id": "LLM-Powered UI Testing (Selenium)-020",
+      "section": "InsightLens \u2014 PDF mount + grounded copilot answering with pages",
+      "name": "PDF mounted and copilot chat enabled (paper ingested)",
+      "status": "PASS",
+      "detail": "copilot input enabled after extraction pipeline"
+    },
+    {
+      "id": "LLM-Powered UI Testing (Selenium)-021",
+      "section": "InsightLens \u2014 PDF mount + grounded copilot answering with pages",
+      "name": "Copilot answers the question",
+      "status": "PASS",
+      "detail": "agent replied (len=176)"
+    },
+    {
+      "id": "LLM-Powered UI Testing (Selenium)-022",
+      "section": "InsightLens \u2014 PDF mount + grounded copilot answering with pages",
+      "name": "Answer cites exact page numbers (RAG grounding)",
+      "status": "PASS",
+      "detail": "page citation present (bracket or prose)"
+    },
+    {
+      "id": "LLM-Powered UI Testing (Selenium)-023",
+      "section": "InsightLens \u2014 PDF mount + grounded copilot answering with pages",
+      "name": "Answer is grounded on the document topic",
+      "status": "PASS",
+      "detail": "mentions 'attention'"
+    }
+  ]
+}

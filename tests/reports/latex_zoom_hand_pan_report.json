@@ -1,0 +1,66 @@
+{
+  "suite": "LaTeX Studio Zoom & Hand Pan Verification",
+  "generated": "2026-09-24 23:24:51",
+  "passed": 8,
+  "failed": 0,
+  "warned": 0,
+  "total": 8,
+  "cases": [
+    {
+      "id": "LaTeX Studio Zoom & Hand Pan Verification-001",
+      "section": "Zoom left-edge fix",
+      "name": "130% zoom \u2014 left edge visible & never clipped",
+      "status": "PASS",
+      "detail": "contentLeft=24.0px (>= -1), sheet offset 24.0px from viewport left at scrollLeft=0, right overflow 130px"
+    },
+    {
+      "id": "LaTeX Studio Zoom & Hand Pan Verification-002",
+      "section": "Zoom left-edge fix",
+      "name": "200% zoom \u2014 left edge flush at scroll origin (no hidden overflow)",
+      "status": "PASS",
+      "detail": "contentLeft=24.0px (content box starts at padding 24px), right overflow 686px => the full 1612px-wide sheet lives in reachable content space"
+    },
+    {
+      "id": "LaTeX Studio Zoom & Hand Pan Verification-003",
+      "section": "Zoom left-edge fix",
+      "name": "200% zoom \u2014 right edge reachable by scrolling",
+      "status": "PASS",
+      "detail": "sheet right 2166.5 vs viewport right 2176.0 at max scroll (scrollLeft=686/686)"
+    },
+    {
+      "id": "LaTeX Studio Zoom & Hand Pan Verification-004",
+      "section": "Hand-pan-only fix",
+      "name": "Hand OFF \u2014 text selectable by drag",
+      "status": "PASS",
+      "detail": "userSelect='text', drag produced selection 'r em'"
+    },
+    {
+      "id": "LaTeX Studio Zoom & Hand Pan Verification-005",
+      "section": "Hand-pan-only fix",
+      "name": "Hand ON \u2014 drag pans both ways and selects nothing",
+      "status": "PASS",
+      "detail": "scrollLeft 0->90->0px (pan left True, right True), selection '', userSelect none, cursor grab"
+    },
+    {
+      "id": "LaTeX Studio Zoom & Hand Pan Verification-006",
+      "section": "Hand-pan-only fix",
+      "name": "Hand ON \u2014 no lingering selection after release",
+      "status": "PASS",
+      "detail": "window.getSelection()=''"
+    },
+    {
+      "id": "LaTeX Studio Zoom & Hand Pan Verification-007",
+      "section": "Hand-pan-only fix",
+      "name": "Hand OFF \u2014 select-text restored",
+      "status": "PASS",
+      "detail": "userSelect='text'"
+    },
+    {
+      "id": "LaTeX Studio Zoom & Hand Pan Verification-008",
+      "section": "Zoom left-edge fix",
+      "name": "90% zoom \u2014 sheet fully visible & centered",
+      "status": "PASS",
+      "detail": "sheet 715px in 926px viewport, center offset 40.0px, contentLeft 65.8px"
+    }
+  ]
+}

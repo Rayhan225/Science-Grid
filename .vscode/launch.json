@@ -1,0 +1,76 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "🔧 Backend: FastAPI Debug",
+      "type": "python",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "main:app",
+        "--host", "0.0.0.0",
+        "--port", "8000",
+        "--reload"
+      ],
+      "cwd": "${workspaceFolder}/living-science-grid/research_brain",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/living-science-grid/research_brain"
+      },
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "🌐 Frontend: Vite Dev Server",
+      "type": "node",
+      "request": "launch",
+      "command": "npm run dev",
+      "cwd": "${workspaceFolder}/living-science-grid",
+      "console": "integratedTerminal",
+      "serverReadyAction": {
+        "pattern": "Local:\\s+http://localhost:(\\d+)",
+        "uriFormat": "http://localhost:%PORT",
+        "action": "openInBrowser"
+      }
+    },
+    {
+      "name": "🚀 Full Stack: Backend + Frontend",
+      "type": "compound",
+      "configurations": [
+        "🔧 Backend: FastAPI Debug",
+        "🌐 Frontend: Vite Dev Server"
+      ],
+      "stopAll": true
+    },
+    {
+      "name": "🧪 Selenium Tests",
+      "type": "python",
+      "request": "launch",
+      "module": "pytest",
+      "args": [
+        "..", "..", "tests", "legacy", "root", "test_selenium_latex_suite.py",
+        "-v", "-s", "--tb=short"
+      ],
+      "cwd": "${workspaceFolder}/living-science-grid/research_brain",
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "🔍 Backend Syntax Check",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/tests/legacy/root/check_backend.py",
+      "cwd": "${workspaceFolder}/living-science-grid",
+      "console": "integratedTerminal"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "🚀 Full Stack Debug (Backend + Frontend)",
+      "configurations": [
+        "🔧 Backend: FastAPI Debug",
+        "🌐 Frontend: Vite Dev Server"
+      ],
+      "stopAll": true
+    }
+  ]
+}

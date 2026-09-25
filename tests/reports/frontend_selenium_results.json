@@ -1,0 +1,283 @@
+{
+  "suite": "Frontend Selenium UI Testing",
+  "generated": "2026-09-24 03:32:51",
+  "passed": 39,
+  "failed": 0,
+  "warned": 0,
+  "total": 39,
+  "cases": [
+    {
+      "id": "Frontend Selenium UI Testing-001",
+      "section": "Landing Page & Auth Modal",
+      "name": "Landing page renders hero headline",
+      "status": "PASS",
+      "detail": "Algorithmic Science & Research"
+    },
+    {
+      "id": "Frontend Selenium UI Testing-002",
+      "section": "Landing Page & Auth Modal",
+      "name": "Auth modal opens from landing ('Authenticate Session')",
+      "status": "PASS",
+      "detail": "modal + demo section visible"
+    },
+    {
+      "id": "Frontend Selenium UI Testing-003",
+      "section": "Landing Page & Auth Modal",
+      "name": "Demo persona card 'Faculty Professor' visible in modal",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "Frontend Selenium UI Testing-004",
+      "section": "Landing Page & Auth Modal",
+      "name": "Demo persona card 'Academic Researcher' visible in modal",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "Frontend Selenium UI Testing-005",
+      "section": "Landing Page & Auth Modal",
+      "name": "Demo persona card 'Graduate Student' visible in modal",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "Frontend Selenium UI Testing-006",
+      "section": "Landing Page & Auth Modal",
+      "name": "Demo persona card 'Research Programmer' visible in modal",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "Frontend Selenium UI Testing-007",
+      "section": "Landing Page & Auth Modal",
+      "name": "Demo persona card 'Lab Director / Admin' visible in modal",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "Frontend Selenium UI Testing-008",
+      "section": "Landing Page & Auth Modal",
+      "name": "Demo persona card 'Peer Reviewer' visible in modal",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "Frontend Selenium UI Testing-009",
+      "section": "Landing Page & Auth Modal",
+      "name": "Auth modal switches to registration mode",
+      "status": "PASS",
+      "detail": "register form fields visible"
+    },
+    {
+      "id": "Frontend Selenium UI Testing-010",
+      "section": "Landing Page & Auth Modal",
+      "name": "Auth modal switches back to sign-in mode",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "Frontend Selenium UI Testing-011",
+      "section": "Quick Demo Persona Login (UI)",
+      "name": "Demo 'Academic Researcher' login lands on Command Matrix",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "Frontend Selenium UI Testing-012",
+      "section": "Quick Demo Persona Login (UI)",
+      "name": "Demo login stored sg_token / sg_user / sg_current_user",
+      "status": "PASS",
+      "detail": "uid=usr_researcher"
+    },
+    {
+      "id": "Frontend Selenium UI Testing-013",
+      "section": "Quick Demo Persona Login (UI)",
+      "name": "Sign Out Session returns to landing page",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "Frontend Selenium UI Testing-014",
+      "section": "Quick Demo Persona Login (UI)",
+      "name": "Demo 'Lab Director / Admin' login lands on Command Matrix",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "Frontend Selenium UI Testing-015",
+      "section": "Quick Demo Persona Login (UI)",
+      "name": "Admin persona resolves to a usr_ id",
+      "status": "PASS",
+      "detail": "uid=usr_default"
+    },
+    {
+      "id": "Frontend Selenium UI Testing-016",
+      "section": "View Navigation via Sidebar (all destinations)",
+      "name": "Lazy view chunks pre-warmed for navigation",
+      "status": "PASS",
+      "detail": "imported LatexStudio/InsightLens/DomainMatrix/etc modules"
+    },
+    {
+      "id": "Frontend Selenium UI Testing-017",
+      "section": "View Navigation via Sidebar (all destinations)",
+      "name": "Navigate via sidebar 'LaTeX Studio' shows 'Recompile'",
+      "status": "PASS",
+      "detail": "title=LaTeX Studio"
+    },
+    {
+      "id": "Frontend Selenium UI Testing-018",
+      "section": "View Navigation via Sidebar (all destinations)",
+      "name": "Navigate via sidebar 'Math Evaluator' shows 'Math Evaluator Sandbox'",
+      "status": "PASS",
+      "detail": "title=Math Evaluator"
+    },
+    {
+      "id": "Frontend Selenium UI Testing-019",
+      "section": "View Navigation via Sidebar (all destinations)",
+      "name": "Navigate via sidebar 'InsightLens Reader' shows 'InsightLens User Manual & Operator Guide'",
+      "status": "PASS",
+      "detail": "title=InsightLens Reader"
+    },
+    {
+      "id": "Frontend Selenium UI Testing-020",
+      "section": "View Navigation via Sidebar (all destinations)",
+      "name": "Navigate via sidebar 'DomainMatrix AI' shows 'Comparative Literature Survey Analysis'",
+      "status": "PASS",
+      "detail": "title=DomainMatrix AI"
+    },
+    {
+      "id": "Frontend Selenium UI Testing-021",
+      "section": "View Navigation via Sidebar (all destinations)",
+      "name": "Navigate via sidebar 'ScholarAudit' shows 'ScholarAudit Integrity & Peer-Review Engine'",
+      "status": "PASS",
+      "detail": "title=ScholarAudit"
+    },
+    {
+      "id": "Frontend Selenium UI Testing-022",
+      "section": "View Navigation via Sidebar (all destinations)",
+      "name": "Navigate via sidebar 'Global Vault' shows 'Central Storage Vault'",
+      "status": "PASS",
+      "detail": "title=Global Vault"
+    },
+    {
+      "id": "Frontend Selenium UI Testing-023",
+      "section": "View Navigation via Sidebar (all destinations)",
+      "name": "Navigate via sidebar 'Settings & Profile' shows 'Settings & Profile Hub'",
+      "status": "PASS",
+      "detail": "title=Settings & Profile"
+    },
+    {
+      "id": "Frontend Selenium UI Testing-024",
+      "section": "View Navigation via Sidebar (all destinations)",
+      "name": "Navigate via sidebar 'Command Matrix' shows 'ScholarGrid Research Command.'",
+      "status": "PASS",
+      "detail": "title=Command Matrix"
+    },
+    {
+      "id": "Frontend Selenium UI Testing-025",
+      "section": "View Navigation via Sidebar (all destinations)",
+      "name": "UI registration created a usable account",
+      "status": "PASS",
+      "detail": "email=uisel_1790199147916_0f859a@test.local uid=usr_1790199149911"
+    },
+    {
+      "id": "Frontend Selenium UI Testing-026",
+      "section": "Settings \u2014 All Tabs & Persistence",
+      "name": "Settings tab 'Profile & Role' renders its panel",
+      "status": "PASS",
+      "detail": "Academic Identity & Institutional Profile"
+    },
+    {
+      "id": "Frontend Selenium UI Testing-027",
+      "section": "Settings \u2014 All Tabs & Persistence",
+      "name": "Settings tab 'Themes & Visuals' renders its panel",
+      "status": "PASS",
+      "detail": "Global Platform Theme & Interface Aesthetics"
+    },
+    {
+      "id": "Frontend Selenium UI Testing-028",
+      "section": "Settings \u2014 All Tabs & Persistence",
+      "name": "Settings tab 'AI Engine & Routing' renders its panel",
+      "status": "PASS",
+      "detail": "ScholarAI Execution Engine & Persona"
+    },
+    {
+      "id": "Frontend Selenium UI Testing-029",
+      "section": "Settings \u2014 All Tabs & Persistence",
+      "name": "Settings tab 'Security & Isolation' renders its panel",
+      "status": "PASS",
+      "detail": "Multi-User Data Isolation & Security Guard"
+    },
+    {
+      "id": "Frontend Selenium UI Testing-030",
+      "section": "Settings \u2014 All Tabs & Persistence",
+      "name": "Theme card selection updates localStorage sg_theme",
+      "status": "PASS",
+      "detail": "sg_theme=topography-dark"
+    },
+    {
+      "id": "Frontend Selenium UI Testing-031",
+      "section": "Settings \u2014 All Tabs & Persistence",
+      "name": "Theme selection persists to the database profile",
+      "status": "PASS",
+      "detail": "db theme=topography-dark"
+    },
+    {
+      "id": "Frontend Selenium UI Testing-032",
+      "section": "Settings \u2014 All Tabs & Persistence",
+      "name": "Theme survives a full page reload",
+      "status": "PASS",
+      "detail": "sg_theme preserved after reload (session restored -> Command Matrix)"
+    },
+    {
+      "id": "Frontend Selenium UI Testing-033",
+      "section": "Settings \u2014 All Tabs & Persistence",
+      "name": "Theme can be switched back (Obsidian Core)",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "Frontend Selenium UI Testing-034",
+      "section": "Settings \u2014 All Tabs & Persistence",
+      "name": "Save Changes persists Full Name to DB",
+      "status": "PASS",
+      "detail": "db name=UI QA Scientist 99159"
+    },
+    {
+      "id": "Frontend Selenium UI Testing-035",
+      "section": "Settings \u2014 All Tabs & Persistence",
+      "name": "Save Changes persists Bio to DB",
+      "status": "PASS",
+      "detail": "db bio=UI suite bio - persisted through Save Changes."
+    },
+    {
+      "id": "Frontend Selenium UI Testing-036",
+      "section": "Settings \u2014 All Tabs & Persistence",
+      "name": "Security tab updates the account password",
+      "status": "PASS",
+      "detail": "server confirmed"
+    },
+    {
+      "id": "Frontend Selenium UI Testing-037",
+      "section": "New Account Lifecycle (create -> relogin with new password)",
+      "name": "Re-login works with the NEW password after UI change",
+      "status": "PASS",
+      "detail": "logged in"
+    },
+    {
+      "id": "Frontend Selenium UI Testing-038",
+      "section": "New Account Lifecycle (create -> relogin with new password)",
+      "name": "Same user id restored after re-login",
+      "status": "PASS",
+      "detail": "uid=usr_1790199149911"
+    },
+    {
+      "id": "Frontend Selenium UI Testing-039",
+      "section": "New Account Lifecycle (create -> relogin with new password)",
+      "name": "Fresh account has 0 own LaTeX projects",
+      "status": "PASS",
+      "detail": "own=0 (list may include shared admin projects)"
+    }
+  ]
+}

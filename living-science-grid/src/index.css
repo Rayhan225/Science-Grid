@@ -2,6 +2,117 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-serif: 'Newsreader', Georgia, Cambria, 'Times New Roman', serif;
+  font-family: var(--font-sans);
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* Enhanced KaTeX math formatting */
+.katex {
+  font-size: 1.08em !important;
+  text-rendering: auto;
+}
+
+.katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.65rem 0.5rem;
+  margin: 0.75rem 0;
+  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* Enhanced LLM prose typography */
+.llm-prose {
+  font-family: var(--font-sans);
+  font-size: 0.8875rem; /* ~14.2px */
+  line-height: 1.7;
+  letter-spacing: -0.01em;
+}
+
+.llm-prose h1, .llm-prose h2, .llm-prose h3, .llm-prose h4 {
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.llm-prose h1 { font-size: 1.15rem; }
+.llm-prose h2 { font-size: 1.05rem; }
+.llm-prose h3 { font-size: 0.95rem; }
+
+.llm-prose p {
+  margin-bottom: 0.75rem;
+}
+
+.llm-prose ul {
+  list-style-type: disc;
+  padding-left: 1.35rem;
+  margin-bottom: 0.75rem;
+}
+
+.llm-prose ol {
+  list-style-type: decimal;
+  padding-left: 1.35rem;
+  margin-bottom: 0.75rem;
+}
+
+.llm-prose li {
+  margin-bottom: 0.35rem;
+  padding-left: 0.2rem;
+}
+
+.llm-prose blockquote {
+  border-left: 3px solid rgba(56, 189, 248, 0.6);
+  padding: 0.5rem 0.85rem;
+  margin: 0.75rem 0;
+  border-radius: 0 0.5rem 0.5rem 0;
+  background: rgba(56, 189, 248, 0.05);
+  font-style: italic;
+}
+
+.llm-prose code:not(pre code) {
+  font-family: var(--font-mono);
+  font-size: 0.825em;
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.35rem;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-weight: 500;
+}
+
+.llm-prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.85rem 0;
+  font-size: 0.825rem;
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.llm-prose th, .llm-prose td {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.llm-prose th {
+  background: rgba(255, 255, 255, 0.06);
+  font-weight: 600;
+}
+
+
 .pdf-outline-custom ul {
   list-style: none;
   padding-left: 12px;
@@ -58,3 +169,76 @@ body.no-scrollbar {
   -ms-overflow-style: none !important;
   scrollbar-width: none !important;
 }
+
+/* ═══ Unified animation system — powers animate-fadeIn, animate-slideIn, etc. ═══ */
+@keyframes sgFadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes sgSlideInLeft {
+  from { opacity: 0; transform: translateX(-18px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes sgSlideInRight {
+  from { opacity: 0; transform: translateX(18px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes sgSlideInUp {
+  from { opacity: 0; transform: translateY(22px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes sgPulseGlow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.35); }
+  50%      { box-shadow: 0 0 0 6px rgba(34, 211, 238, 0); }
+}
+@keyframes sgTyping {
+  0%   { width: 0; }
+  100% { width: 100%; }
+}
+@keyframes sgCaret {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0; }
+}
+@keyframes sgSpinSlow {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.animate-fadeIn        { animation: sgFadeIn 0.35s ease-out both; }
+.animate-slideInLeft   { animation: sgSlideInLeft 0.3s ease-out both; }
+.animate-slideInRight  { animation: sgSlideInRight 0.3s ease-out both; }
+.animate-slideInUp     { animation: sgSlideInUp 0.35s ease-out both; }
+.animate-pulse-glow    { animation: sgPulseGlow 2s ease-in-out infinite; }
+.animate-spin-slow     { animation: sgSpinSlow 3s linear infinite; }
+
+/* Typewriter effect for the interactive manual demo */
+.sg-typewriter {
+  display: inline-block;
+  overflow: hidden;
+  white-space: nowrap;
+  vertical-align: bottom;
+  border-right: 2px solid rgba(34, 211, 238, 0.9);
+  animation: sgTyping 2.4s steps(38, end) forwards, sgCaret 0.8s step-end infinite;
+}
+
+/* LaTeX Studio guided-manual animated panels */
+.sg-key-cap {
+  animation: sgPulseGlow 2.4s ease-in-out infinite;
+}
+
+/* Fixed Header Long Title Reel Ticker */
+@keyframes sgTitleReel {
+  0%, 15% { transform: translateX(0%); }
+  50%, 65% { transform: translateX(-40%); }
+  85%, 100% { transform: translateX(0%); }
+}
+
+.sg-title-reel {
+  display: inline-block;
+  white-space: nowrap;
+  animation: sgTitleReel 12s ease-in-out infinite;
+}
+
+.sg-title-reel:hover {
+  animation-play-state: paused;
+}

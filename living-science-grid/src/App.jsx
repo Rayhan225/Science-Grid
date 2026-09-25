@@ -14,6 +14,8 @@ const Settings = React.lazy(() => import('./components/Settings'));
 const CentralVault = React.lazy(() => import('./components/CentralVault'));
 const DomainMatrix = React.lazy(() => import('./components/DomainMatrix'));
 const ValidationRigor = React.lazy(() => import('./components/ValidationRigor'));
+const LatexStudio = React.lazy(() => import('./components/LatexStudio'));
+const TemplatesGallery = React.lazy(() => import('./components/TemplatesGallery'));
 
 function ViewLoader() {
   return (
@@ -582,24 +584,76 @@ function AppContent({ settings, setSettings, currentUser, onUpdateUser, onLogout
     });
   }, [currentView]);
 
+  // First-load optimisation: once the user is inside the app, fetch the heavy
+  // view chunks during browser idle time so the first open of LaTeX Studio /
+  // Templates / Central Vault / Settings / Math Evaluator is instant (no full-chunk
+  // download behind the "Initializing Engine..." spinner).
+  useEffect(() => {
+    const preloads = [
+      () => import('./components/TemplatesGallery'),
+      () => import('./components/LatexStudio'),
+      () => import('./components/CentralVault'),
+      () => import('./components/Settings'),
+      () => import('./components/MathEvaluator'),
+    ];
+    let cancelled = false;
+    const run = () => {
+      if (cancelled) return;
+      preloads.forEach(p => { p().catch(() => {}); });
+    };
+    if (typeof window.requestIdleCallback === 'function') {
+      const id = window.requestIdleCallback(run, { timeout: 3000 });
+      return () => { cancelled = true; window.cancelIdleCallback(id); };
+    }
+    const t = setTimeout(run, 1200);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, []);
+
+  const handleOpenTemplateInStudio = (template) => {
+    const payload = {
+      layout: template,
+      latex_code: template.latex_code,
+      bib_content: template.bib_content
+    };
+    window.__sg_pending_template = payload;
+    try {
+      sessionStorage.setItem('sg_pending_template', JSON.stringify(payload));
+    } catch {}
+    setCurrentView('latex-studio');
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('sg-apply-layout', {
+        detail: payload
+      }));
+    }, 150);
+  };
+
   return (
     <div className={`h-screen w-screen flex overflow-hidden select-none relative transition-colors duration-700 ${themeClasses.bgMain}`}>
       <div className={`absolute inset-0 pointer-events-none z-0 ${themeClasses.bgPattern}`}></div>
 
-      <div className={`group flex-shrink-0 h-full relative z-40 transition-all duration-300 ease-in-out shadow-2xl w-20 hover:w-72 overflow-hidden ${themeClasses.bgSidebar}`}>
+      <div className={`group flex-shrink-0 h-full relative z-40 transition-all duration-300 ease-in-out shadow-2xl w-16 hover:w-72 overflow-hidden ${themeClasses.bgSidebar}`}>
         <Sidebar currentView={currentView} onViewChange={setCurrentView} currentUser={currentUser} />
       </div>
       
       <div className="flex-1 flex flex-col h-full min-w-0 min-h-0 relative z-10">
-        <div className={`flex-shrink-0 z-30 transition-colors duration-700 ${themeClasses.bgHeader}`}>
-          <Header status={status} currentView={currentView} onViewChange={setCurrentView} />
-        </div>
+        {/* Global Header across all views except LaTeX Studio & Templates Gallery */}
+        {currentView !== 'latex-studio' && currentView !== 'templates' && (
+          <div className={`flex-shrink-0 z-30 transition-colors duration-700 ${themeClasses.bgHeader}`}>
+            <Header status={status} currentView={currentView} onViewChange={setCurrentView} />
+          </div>
+        )}
         
         <main className={`flex-1 overflow-hidden relative flex flex-col p-0 w-full h-full min-h-0 ${themeClasses.bgMain}`}>
           <Suspense fallback={<ViewLoader />}>
             {visitedViews.has('dashboard') && (
               <div className={currentView === 'dashboard' ? 'flex-1 animate-fadeIn flex flex-col h-full min-h-0 overflow-hidden' : 'hidden'}>
                 <Dashboard onSelectTool={setCurrentView} telemetry={telemetry} currentUser={currentUser} currentView={currentView} />
+              </div>
+            )}
+
+            {visitedViews.has('templates') && (
+              <div className={currentView === 'templates' ? 'flex-1 animate-fadeIn flex flex-col h-full overflow-hidden' : 'hidden'}>
+                <TemplatesGallery setCurrentView={setCurrentView} onOpenInStudio={handleOpenTemplateInStudio} />
               </div>
             )}
             
@@ -643,6 +697,12 @@ function AppContent({ settings, setSettings, currentUser, onUpdateUser, onLogout
             {visitedViews.has('validation-rigor') && (
               <div className={currentView === 'validation-rigor' ? 'flex-1 animate-fadeIn flex flex-col h-full' : 'hidden'}>
                 <ValidationRigor setStatus={setStatus} setCurrentView={setCurrentView} />
+              </div>
+            )}
+
+            {visitedViews.has('latex-studio') && (
+              <div className={currentView === 'latex-studio' ? 'flex-1 animate-fadeIn flex flex-col h-full' : 'hidden'}>
+                <LatexStudio setCurrentView={setCurrentView} />
               </div>
             )}
           </Suspense>

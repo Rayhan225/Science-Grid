@@ -12,6 +12,7 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import { useTheme } from '../context/ThemeContext';
+import LLMResponseView from './LLMResponseView';
 
 const rehypeKatexOptions = [rehypeKatex, { strict: false, throwOnError: false }];
 
@@ -1348,9 +1349,9 @@ Provide comprehensive, mathematically grounded comparisons. Highlight algorithmi
                       </div>
                     )}
                     {(chatMode === 'paper' && selectedRow ? currentPaperChat : comparativeChat).map((msg, idx) => (
-                      <div key={idx} className={`p-4 rounded-2xl border max-w-[92%] shadow-sm ${msg.role === 'user' ? (isLight ? 'ml-auto bg-slate-100 border-slate-200 text-slate-800' : 'ml-auto bg-[#1a1a1a] border-white/10 text-white') : (isLight ? 'mr-auto bg-rose-50/80 border-rose-200 text-slate-800' : 'mr-auto bg-rose-950/20 border-rose-500/20 text-slate-200')}`}>
-                        <div className="text-[9px] font-mono text-slate-500 uppercase tracking-widest mb-2 flex items-center justify-between">
-                          <span>{msg.role === 'user' ? 'You' : (chatMode === 'paper' && selectedRow ? `Sandbox (${(selectedRow?.paper || 'Paper').split('(')[0].trim()})` : 'Literature Copilot')}</span>
+                      <div key={idx} className={`p-4 rounded-2xl border max-w-[94%] shadow-sm ${msg.role === 'user' ? (isLight ? 'ml-auto bg-slate-100 border-slate-200 text-slate-800' : 'ml-auto bg-[#1a1a1a] border-white/10 text-white') : (isLight ? 'mr-auto bg-rose-50/80 border-rose-200 text-slate-800' : 'mr-auto bg-rose-950/20 border-rose-500/20 text-slate-200')}`}>
+                        <div className="text-xs font-mono text-slate-400 uppercase tracking-wider mb-2 flex items-center justify-between">
+                          <span className="font-semibold">{msg.role === 'user' ? 'You' : (chatMode === 'paper' && selectedRow ? `Sandbox (${(selectedRow?.paper || 'Paper').split('(')[0].trim()})` : 'Literature Copilot')}</span>
                           {msg.role !== 'user' && (
                             <button
                               onClick={() => {
@@ -1358,34 +1359,34 @@ Provide comprehensive, mathematically grounded comparisons. Highlight algorithmi
                                 setCopiedMsgIdx(idx);
                                 setTimeout(() => setCopiedMsgIdx(null), 2000);
                               }}
-                              className="hover:text-rose-400 p-0.5 rounded transition-colors flex items-center gap-1 text-[9px] normal-case font-mono"
+                              className="hover:text-rose-400 p-1 rounded transition-colors flex items-center gap-1 text-xs normal-case font-mono cursor-pointer"
                               title="Copy response"
                             >
-                              {copiedMsgIdx === idx ? <><Check size={11} className="text-emerald-400" /> Copied</> : <><Copy size={11} /> Copy</>}
+                              {copiedMsgIdx === idx ? <><Check size={12} className="text-emerald-400" /> Copied</> : <><Copy size={12} /> Copy</>}
                             </button>
                           )}
                         </div>
                         {msg.role === 'user' ? (
-                          <p className="text-xs font-light leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                          <p className="text-sm font-normal leading-relaxed select-text whitespace-pre-wrap">{msg.content}</p>
                         ) : (
-                          <div className={`prose max-w-none text-xs leading-relaxed select-text ${isLight ? 'prose-slate text-slate-800' : 'prose-invert text-slate-200'} [&_h3]:text-xs [&_h3]:font-bold [&_h3]:font-mono [&_h3]:uppercase [&_h3]:tracking-wider [&_h3]:mb-2 [&_h3]:mt-3 [&_h3]:text-rose-400 [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 [&_li]:mb-1.5 [&_strong]:text-rose-300 [&_p]:mb-2 [&_code]:bg-white/10 [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded`}>
-                            <ReactMarkdown rehypePlugins={[rehypeKatex]} remarkPlugins={[remarkMath]}>
-                              {msg.content}
-                            </ReactMarkdown>
-                          </div>
+                          <LLMResponseView
+                            content={msg.content}
+                            isLight={isLight}
+                            showFormulaInspector={true}
+                          />
                         )}
                       </div>
                     ))}
                     {isSimulating && (
-                      <div className="text-[10px] font-mono text-rose-500 animate-pulse ml-2 uppercase tracking-widest flex items-center gap-2">
-                        <Activity size={12} /> Synthesizing with Local Engine...
+                      <div className="text-xs font-mono text-rose-400 animate-pulse ml-2 uppercase tracking-widest flex items-center gap-2 py-1 font-semibold">
+                        <Activity size={14} className="animate-spin" /> Synthesizing with Sovereign Engine...
                       </div>
                     )}
                   </div>
 
                   {/* Input Bar */}
-                  <div className={`p-3 border-t flex-shrink-0 ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#0a0a0a] border-white/5'}`}>
-                    <form onSubmit={handleChat} className={`flex items-center border rounded-xl p-1 transition-colors shadow-inner ${isLight ? 'bg-white border-slate-300 focus-within:border-rose-400' : 'bg-[#050505] border-white/10 focus-within:border-rose-500/40'}`}>
+                  <div className={`p-3.5 border-t flex-shrink-0 ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#0a0a0a] border-white/10'}`}>
+                    <form onSubmit={handleChat} className={`flex items-center border rounded-2xl p-1.5 transition-all shadow-inner ${isLight ? 'bg-white border-slate-300 focus-within:border-rose-400' : 'bg-[#050505] border-white/10 focus-within:border-rose-500/50'}`}>
                       <input 
                         type="text" 
                         value={chatInput} 
@@ -1396,14 +1397,14 @@ Provide comprehensive, mathematically grounded comparisons. Highlight algorithmi
                             ? "Hypothesize changes (e.g. 'What if we replace self-attention with Mamba SSM?')..." 
                             : "Ask comparative questions across all papers in the matrix..."
                         }
-                        className={`flex-grow bg-transparent text-xs px-3 py-2 outline-none font-sans ${isLight ? 'text-slate-800' : 'text-white'}`}
+                        className={`flex-grow bg-transparent text-sm px-3.5 py-2 outline-none font-sans ${isLight ? 'text-slate-800' : 'text-white'}`}
                       />
                       <button 
                         type="submit" 
                         disabled={!chatInput.trim() || isSimulating} 
-                        className="p-1.5 bg-rose-500/10 text-rose-500 rounded-lg hover:bg-rose-500 hover:text-white transition-colors disabled:opacity-30"
+                        className="p-2.5 bg-rose-500/15 text-rose-400 rounded-xl hover:bg-rose-500 hover:text-white transition-all disabled:opacity-30 cursor-pointer shadow-md"
                       >
-                        <Send size={14} />
+                        <Send size={15} />
                       </button>
                     </form>
                   </div>

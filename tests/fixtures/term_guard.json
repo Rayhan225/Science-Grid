@@ -1,0 +1,1 @@
+{"content": "We propose a new model W with loss L = sum_i y_i log yhat_i. The GPU latency was 23 ms and CPU time 12 s. Transformer (TFR) attention is used throughout. The proposed SAML method achieves 94.2% accuracy. Backpropagation (BP) gradients flow.", "title": "Notation Test Manuscript"}

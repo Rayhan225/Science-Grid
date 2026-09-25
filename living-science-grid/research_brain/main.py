@@ -17,7 +17,8 @@ import asyncpg
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-
+import latex_studio
+import academic_layouts
 # ── New Module Imports: SLM Engine & DB Manager ──
 _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(_project_root, "server"))
@@ -262,10 +263,14 @@ async def init_db_pool():
     except Exception as e:
         print(f"[ERROR] [Python Brain] Database Connection Failure: {e}")
 
+# =====================================================================
+# DATABASE LIFECYCLE, MIGRATION & APPLICATION LIFESPAN
+# =====================================================================
+
 async def migrate_schema():
-    """Migrate legacy TEXT columns → JSONB and create new research tables."""
+    """Migrate legacy TEXT columns -> JSONB and create new research tables."""
     global db_pool
-    if not db_pool:
+    if db_pool is None:
         return
     async with db_pool.acquire() as conn:
         # ── Migrate existing TEXT columns to JSONB ──
@@ -277,7 +282,7 @@ async def migrate_schema():
             ("math_evaluator_sessions", "matrix_data",     "'{}'::jsonb"),
             ("math_evaluator_sessions", "chat_history",    "'[]'::jsonb"),
             ("domain_workspaces",      "selected_files",   "'[]'::jsonb"),
-            ("domain_workspaces",      "matrix_data",      "'[]'::jsonb"),
+            ("domain_workspaces",      "matrix_data",      "'{}'::jsonb"),
             ("domain_workspaces",      "chat_history",     "'[]'::jsonb"),
             ("canvas_annotations",     "coordinate_points","'[]'::jsonb"),
             ("scholar_profiles",       "specialist_badges","'[]'::jsonb"),
@@ -303,8 +308,10 @@ async def migrate_schema():
             except Exception as e:
                 print(f"  [WARN] Migration skip {table}.{column}: {e}")
 
-        # ── Create new research tables (native JSONB) ──
-        await conn.execute("""
+        # ── Create new research tables (each batch guarded so a remote
+        #    statement timeout never aborts the whole server startup) ──
+        try:
+          await conn.execute("""
             CREATE TABLE IF NOT EXISTS papers (
                 paper_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 title TEXT NOT NULL,
@@ -331,7 +338,6 @@ async def migrate_schema():
             );
             CREATE TABLE IF NOT EXISTS audit_ledger (
                 audit_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                paper_id UUID NOT NULL REFERENCES papers(paper_id) ON DELETE CASCADE,
                 paper_id UUID REFERENCES papers(paper_id) ON DELETE CASCADE,
                 rigor_score NUMERIC,
                 verification_passed BOOLEAN DEFAULT FALSE,
@@ -391,8 +397,9 @@ async def migrate_schema():
                 created_at TIMESTAMPTZ DEFAULT NOW()
             );
         """)
+        except Exception as batch_err:
+            print(f"[WARN] Migration batch note (tables already migrated or remote timeout): {batch_err}")
 
-        # ── Seed 5 Standard Institutional Role Personas ──
         demo_accounts = [
             ("usr_researcher", "researcher@scholargrid.io", "Dr. Elena Rostova", "researcher", 340, ["Senior Research Fellow", "Deep Literature Synthesis"]),
             ("usr_student", "student@scholargrid.io", "Alex Chen", "student", 160, ["Graduate Researcher", "Active Recall Master"]),
@@ -400,50 +407,99 @@ async def migrate_schema():
             ("usr_admin", "admin@scholargrid.io", "System Director", "admin", 500, ["Lab Director", "Institutional Governance PI"]),
             ("usr_reviewer", "reviewer@scholargrid.io", "Prof. Marcus Thorne", "reviewer", 460, ["Lead Peer Reviewer", "Methodology Auditor"]),
         ]
-        
-        for u_id, email, name, role, karma, badges in demo_accounts:
-            hashed_pw = _hash_password("password123")
-            await conn.execute("""
-                INSERT INTO users (id, email, password, name, role)
-                VALUES ($1, $2, $3, $4, $5)
-                ON CONFLICT (email) DO UPDATE SET 
-                    role = EXCLUDED.role,
-                    name = EXCLUDED.name,
-                    password = EXCLUDED.password
-            """, u_id, email, hashed_pw, name, role)
-            
-            username = email.split("@")[0]
-            avatar = f"https://api.dicebear.com/7.x/bottts/svg?seed={username}"
-            badges_json = json.dumps(badges)
-            await conn.execute("""
-                INSERT INTO scholar_profiles (id, username, display_name, avatar_url, karma_score, specialist_badges)
-                VALUES ($1, $2, $3, $4, $5, $6::jsonb)
-                ON CONFLICT (id) DO UPDATE SET
-                    display_name = EXCLUDED.display_name,
-                    avatar_url = EXCLUDED.avatar_url,
-                    specialist_badges = EXCLUDED.specialist_badges
-            """, u_id, username, name, avatar, karma, badges_json)
+        try:
+            for u_id, email, name, role, karma, badges in demo_accounts:
+                hashed_pw = _hash_password("password123")
+                await conn.execute("""
+                    INSERT INTO users (id, email, password, name, role)
+                    VALUES ($1, $2, $3, $4, $5)
+                    ON CONFLICT (email) DO UPDATE SET
+                        role = EXCLUDED.role,
+                        name = EXCLUDED.name,
+                        password = EXCLUDED.password
+                """, u_id, email, hashed_pw, name, role)
 
-        print("[OK] [Python Brain] JSONB migration, multi-user isolation, flashcards & code implementations tables ready. Demo accounts verified.")
+                username = email.split("@")[0]
+                avatar = f"https://api.dicebear.com/7.x/bottts/svg?seed={username}"
+                badges_json = json.dumps(badges)
+                await conn.execute("""
+                    INSERT INTO scholar_profiles (id, username, display_name, avatar_url, karma_score, specialist_badges)
+                    VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+                    ON CONFLICT (id) DO UPDATE SET
+                        display_name = EXCLUDED.display_name,
+                        avatar_url = EXCLUDED.avatar_url,
+                        specialist_badges = EXCLUDED.specialist_badges
+                """, u_id, username, name, avatar, karma, badges_json)
+        except Exception as demo_err:
+            print(f"[WARN] Demo account seeding note (skip, non-fatal): {demo_err}")
+
+        print("[OK] [Python Brain] JSONB migration, multi-user isolation, flashcards & code implementations tables ready.")
+
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
+    global db_pool
     await init_db_pool()
     await migrate_schema()
+
+    # Mount LaTeX Studio Database Tables
+    try:
+        import latex_studio
+        latex_studio.set_db_pool(db_pool)
+        async with db_pool.acquire() as conn:
+            await latex_studio.init_latex_tables(conn)
+        print("[OK] [Python Brain] LaTeX Studio PostgreSQL schema mounted.")
+    except ImportError:
+        pass
+    except Exception as e:
+        print(f"[WARN] [Python Brain] LaTeX Studio init note: {e}")
+
+    # Mount Academic Layouts Database Tables & Seed Layouts in Background
+    try:
+        import academic_layouts
+        academic_layouts.set_db_pool(db_pool)
+        async def _seed_layouts_bg():
+            try:
+                async with db_pool.acquire() as conn:
+                    await academic_layouts.init_layouts_table(conn)
+                print("[OK] [Python Brain] Academic Layouts PostgreSQL schema mounted (10,000+ indexed).")
+            except Exception as e:
+                print(f"[WARN] [Python Brain] Academic Layouts init note: {e}")
+        asyncio.create_task(_seed_layouts_bg())
+    except ImportError:
+        pass
+    except Exception as e:
+        print(f"[WARN] [Python Brain] Academic Layouts setup note: {e}")
+
     # Initialize SLM engine (warmup model on startup)
     if SLM_AVAILABLE:
         await asyncio.to_thread(slm_engine.warmup)
     # Initialize db_manager tables via psycopg2
     if DB_MANAGER_AVAILABLE:
-        await asyncio.to_thread(db_manager.init_tables)
+        try:
+            await asyncio.to_thread(db_manager.init_tables)
+        except Exception as e:
+            print(f"[WARN] [Python Brain] db_manager.init_tables note (non-fatal): {e}")
+
     yield
-    global db_pool
-    if db_pool:
+
+    if db_pool is not None:
         await db_pool.close()
     if DB_MANAGER_AVAILABLE:
         db_manager.close()
 
 app = FastAPI(title="ScholarGrid Sovereign Core", lifespan=lifespan)
+try:
+    import latex_studio
+    app.include_router(latex_studio.router)
+except (ImportError, AttributeError):
+    pass
+
+try:
+    import academic_layouts
+    app.include_router(academic_layouts.router)
+except (ImportError, AttributeError):
+    pass
 
 app.add_middleware(
     CORSMiddleware,
@@ -473,7 +529,8 @@ async def query_local_llm(
     temperature: float = 0.1,
     top_p: float = 0.95,
     force_json: bool = False,
-    images: Optional[List[str]] = None
+    images: Optional[List[str]] = None,
+    grammar: Optional[str] = None
 ) -> str:
     """Execute local SLM inference via llama-cpp-python on CPU with tailored analytical decoding."""
     if SLM_AVAILABLE:
@@ -486,7 +543,8 @@ async def query_local_llm(
                 max_tokens=max_tokens,
                 temperature=temperature,
                 top_p=top_p,
-                force_json=force_json
+                force_json=force_json,
+                grammar=grammar
             )
         except Exception as e:
             print(f"[ERROR] [SLM Engine] Inference failure: {e}")
@@ -501,17 +559,33 @@ async def robust_llm_json(
     expected_keys: Optional[List[str]] = None,
     max_tokens: int = 700,
     retries: int = 1,
-    max_retries: Optional[int] = None
+    max_retries: Optional[int] = None,
+    schema: Optional[Dict[str, str]] = None
 ) -> Optional[dict]:
-    """Robustly query local SLM for JSON with automated validation and retry logic."""
+    """Robustly query local SLM for JSON with automated validation and retry logic.
+
+    `schema`: optional {key: type} map (types: string/int/float/bool/any) passed
+    to slm_engine.build_schema_grammar. Constraining the output to an exact key
+    schema yields complete, parseable JSON in a single grammar-constrained pass —
+    far faster and more reliable than generic JSON + retries. Falls back to the
+    generic JSON-object grammar if schema compilation fails.
+    """
     effective_retries = max_retries if max_retries is not None else retries
+    grammar = None
+    if schema:
+        try:
+            grammar = slm_engine.build_schema_grammar(schema)
+        except Exception as ge:
+            print(f"[WARN] [robust_llm_json] Schema grammar build failed; using generic JSON: {ge}")
+            grammar = None
     curr_prompt = prompt
     for attempt in range(effective_retries + 1):
         raw = await query_local_llm(
             prompt=curr_prompt,
             system_prompt=system_prompt,
             max_tokens=max_tokens,
-            force_json=True
+            force_json=True,
+            grammar=grammar
         )
         parsed = extract_json_safely(raw)
         if parsed and isinstance(parsed, dict):
@@ -527,21 +601,98 @@ async def robust_llm_json(
 # Backward compatibility alias
 query_ollama_lightning = query_local_llm
 
+def _escape_control_chars(text: str) -> str:
+    """Escape raw control characters (0x00-0x1F, 0x7F) that appear inside JSON
+    string literals, where JSON forbids them. Characters already part of a
+    backslash escape are left untouched. Tracks string state so structural
+    whitespace between tokens is preserved."""
+    if not text:
+        return text
+    out = []
+    in_string = False
+    escape = False
+    for ch in text:
+        if escape:
+            out.append(ch)
+            escape = False
+            continue
+        if ch == "\\":
+            out.append(ch)
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            out.append(ch)
+            continue
+        code = ord(ch)
+        if in_string and (code < 0x20 or code == 0x7F):
+            out.append(f"\\u{code:04x}")
+            continue
+        out.append(ch)
+    return "".join(out)
+
+
 def extract_json_safely(raw_text: str) -> Optional[dict]:
-    if not raw_text: return None
+    """Parse a JSON object from an LLM response; auto-repair truncated/malformed output.
+
+    Attempts a strict parse first, then engages an advanced auto-repair pass
+    (mirrors src/aiHelper.js extractValidJSON): strips markdown fences, trims
+    trailing garbage, closes unterminated strings/braces/brackets, removes
+    trailing commas, and escapes raw control characters (which JSON forbids
+    inside strings but CPU models occasionally emit, e.g. raw newlines in code).
+    """
+    if not raw_text:
+        return None
     clean = raw_text.strip()
-    if clean.startswith("```json"): clean = clean[7:]
-    if clean.startswith("```"): clean = clean[3:]
-    if clean.endswith("```"): clean = clean[:-3]
-    clean = clean.strip()
+    # Strip markdown code fences (```json / ```)
+    clean = re.sub(r"^```(?:json)?\s*", "", clean, flags=re.IGNORECASE).lstrip()
+    clean = re.sub(r"\s*```$", "", clean).rstrip()
+    start = clean.find("{")
+    if start == -1:
+        return None
+    clean = clean[start:]
     try:
-        return json.loads(clean)
+        return json.loads(_escape_control_chars(clean))
     except Exception:
-        match = re.search(r"\{.*\}", clean, re.DOTALL)
-        if match:
-            try: return json.loads(match.group(0))
-            except Exception: pass
-    return None
+        pass
+    # ── Auto-repair pass ──
+    clean = re.sub(r"[\s,.:]+$", "", clean)
+    open_braces = 0
+    open_brackets = 0
+    in_string = False
+    escape = False
+    for ch in clean:
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if not in_string:
+            if ch == "{":
+                open_braces += 1
+            elif ch == "}":
+                open_braces -= 1
+            elif ch == "[":
+                open_brackets += 1
+            elif ch == "]":
+                open_brackets -= 1
+    if in_string:
+        clean += '"'
+    while open_brackets > 0:
+        clean += "]"
+        open_brackets -= 1
+    while open_braces > 0:
+        clean += "}"
+        open_braces -= 1
+    clean = re.sub(r",(?=\s*[}\]])", "", clean)
+    try:
+        return json.loads(_escape_control_chars(clean))
+    except Exception:
+        return None
 
 def safe_parse_json(data: Any, fallback: Any):
     if not data:
@@ -636,10 +787,10 @@ async def register_user(req: RegisterRequest):
         "status": "success",
         "access_token": f"sg_token_{user_id}",
         "user": {
-            "id": user_id, 
-            "email": req.email, 
-            "name": name_val, 
-            "role": req_role, 
+            "id": user_id,
+            "email": req.email,
+            "name": name_val,
+            "role": req_role,
             "username": username,
             "cv": cv_text,
             "cv_locked": cv_locked,
@@ -667,8 +818,8 @@ async def login_user(req: LoginRequest):
     async with pool.acquire() as conn:
         # Try hashed password first, then fall back to plain text or trimmed variants
         user = await conn.fetchrow(
-            """SELECT id, email, name, role FROM users 
-               WHERE LOWER(TRIM(email)) = $1 
+            """SELECT id, email, name, role FROM users
+               WHERE LOWER(TRIM(email)) = $1
                  AND (password = $2 OR password = $3 OR password = $4 OR password = $5)""",
             clean_email, hashed_pw, clean_hashed_pw, raw_pw, clean_pw
         )
@@ -680,14 +831,25 @@ async def login_user(req: LoginRequest):
             if is_demo_email and is_valid_demo_pw:
                 user = await conn.fetchrow("SELECT id, email, name, role FROM users WHERE LOWER(TRIM(email)) = $1", clean_email)
                 if not user and clean_email.endswith("@scholargrid.io"):
-                    # Auto-provision standard demo account if not found
+                    # Auto-provision standard demo account if not found.
+                    # 'professor' is included so the Faculty Professor persona gets
+                    # its own usr_professor scope instead of silently sharing
+                    # usr_researcher (the recorded persona-overlap defect).
                     role_stem = clean_email.split("@")[0].lower()
-                    assigned_role = role_stem if role_stem in ("researcher", "student", "programmer", "reviewer", "admin") else "researcher"
+                    assigned_role = role_stem if role_stem in ("professor", "researcher", "student", "programmer", "reviewer", "admin") else "researcher"
                     user_id = f"usr_{assigned_role}"
                     display_name = f"ScholarGrid {assigned_role.capitalize()}"
+                    username = clean_email.split("@")[0]
                     await conn.execute(
                         "INSERT INTO users (id, email, password, name, role) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO NOTHING",
                         user_id, clean_email, clean_hashed_pw, display_name, assigned_role
+                    )
+                    await conn.execute(
+                        """INSERT INTO scholar_profiles (id, username, display_name, avatar_url, karma_score)
+                           VALUES ($1, $2, $3, $4, 100)
+                           ON CONFLICT (id) DO NOTHING""",
+                        user_id, username, display_name,
+                        f"https://api.dicebear.com/7.x/bottts/svg?seed={username}"
                     )
                     user = {"id": user_id, "email": clean_email, "name": display_name, "role": assigned_role}
 
@@ -721,10 +883,10 @@ async def change_password(req: ChangePasswordRequest):
         raise HTTPException(status_code=400, detail="Current and new passwords are required.")
     if len(req.new_password) < 6:
         raise HTTPException(status_code=400, detail="New password must be at least 6 characters long.")
-    
+
     current_hashed = _hash_password(req.current_password)
     new_hashed = _hash_password(req.new_password)
-    
+
     async with pool.acquire() as conn:
         if req.user_id:
             user = await conn.fetchrow("SELECT id, password FROM users WHERE id = $1", req.user_id)
@@ -732,17 +894,17 @@ async def change_password(req: ChangePasswordRequest):
             user = await conn.fetchrow("SELECT id, password FROM users WHERE email = $1", req.email)
         else:
             raise HTTPException(status_code=400, detail="User ID or email is required.")
-        
+
         if not user:
             raise HTTPException(status_code=404, detail="User not found.")
-        
+
         stored_pw = user["password"]
         # Match either hash or plain text for legacy accounts
         if stored_pw != current_hashed and stored_pw != req.current_password:
             raise HTTPException(status_code=401, detail="Current password does not match.")
-        
+
         await conn.execute("UPDATE users SET password = $1 WHERE id = $2", new_hashed, user["id"])
-    
+
     return {"status": "success", "message": "Password changed successfully."}
 
 @app.get("/api/user/profile")
@@ -770,7 +932,7 @@ async def get_user_profile(user_id: Optional[str] = None):
                 "scholar_ai_engine": "scholargrid-ai-core",
                 "avatar_preset": "cyan"
             }
-        
+
         user = await conn.fetchrow("SELECT email, role FROM users WHERE id = $1", profile["id"])
         badges = []
         if profile.get("specialist_badges"):
@@ -829,7 +991,7 @@ async def update_user_profile(body: dict):
     primary_tech_stack = body.get("primary_tech_stack") or ""
     degree_program = body.get("degree_program") or ""
     expected_graduation_year = body.get("expected_graduation_year") or ""
-    
+
     async with pool.acquire() as conn:
         # Target specific user's profile if user_id provided
         if user_id:
@@ -841,7 +1003,7 @@ async def update_user_profile(body: dict):
             # Check if CV is locked
             is_cv_locked = bool(profile.get("cv_locked"))
             cv_to_save = profile.get("cv") if is_cv_locked else (new_cv if new_cv is not None else profile.get("cv", ""))
-            
+
             # If user submitted a CV now for professor, researcher, programmer, lock it
             user_row = await conn.fetchrow("SELECT role FROM users WHERE id = $1", profile["id"])
             current_role = role or (user_row["role"] if user_row else "researcher")
@@ -849,9 +1011,9 @@ async def update_user_profile(body: dict):
                 is_cv_locked = True
 
             await conn.execute(
-                """UPDATE scholar_profiles SET 
-                   display_name = COALESCE($1, display_name), 
-                   avatar_url = COALESCE(NULLIF($2, ''), avatar_url), 
+                """UPDATE scholar_profiles SET
+                   display_name = COALESCE($1, display_name),
+                   avatar_url = COALESCE(NULLIF($2, ''), avatar_url),
                    specialist_badges = COALESCE($3, specialist_badges),
                    theme = COALESCE($4, theme),
                    affiliation = COALESCE($5, affiliation),
@@ -963,6 +1125,74 @@ async def get_ai_tags():
         "decoding": "deterministic"
     }
 
+# ══════════════════════════════════════════════════════════════
+# PERSISTENT TEST HISTORY (test_runs table → Test History view)
+# ══════════════════════════════════════════════════════════════
+
+class TestRunRecord(BaseModel):
+    suite: str
+    status: str = "PASS"
+    passed: int = 0
+    failed: int = 0
+    warned: int = 0
+    total: int = 0
+    seconds: float = 0.0
+    script: Optional[str] = None
+    generated_at: Optional[str] = None
+    results: Optional[Any] = None
+
+
+@app.post("/api/tests/history")
+async def record_test_run(payload: Union[TestRunRecord, List[TestRunRecord], Dict[str, Any]]):
+    """Persist one test-suite run (or a list of runs) into the test_runs table."""
+    if not DB_MANAGER_AVAILABLE:
+        return {"status": "error", "detail": "db_manager unavailable"}
+    try:
+        records = payload if isinstance(payload, list) else [payload]
+        run_ids = []
+        for rec in records:
+            d = rec if isinstance(rec, dict) else rec.model_dump() if hasattr(rec, "model_dump") else rec.dict()
+            run_id = await asyncio.to_thread(
+                db_manager.insert_test_run,
+                suite=str(d.get("suite") or "Unnamed Suite"),
+                status=str(d.get("status") or "PASS"),
+                passed=int(d.get("passed") or 0),
+                failed=int(d.get("failed") or 0),
+                warned=int(d.get("warned") or 0),
+                total=int(d.get("total") or 0),
+                seconds=float(d.get("seconds") or 0.0),
+                script=d.get("script"),
+                results=d.get("results") or {},
+            )
+            run_ids.append(run_id)
+        return {"status": "success", "runIds": run_ids, "count": len(run_ids)}
+    except Exception as exc:  # noqa: BLE001
+        print(f"[WARN] [Test History] Persist error: {exc}")
+        return {"status": "error", "detail": str(exc)}
+
+
+@app.get("/api/tests/history")
+async def get_test_history(limit: int = 100):
+    """Return persisted test-run history (newest first) plus aggregate stats."""
+    if not DB_MANAGER_AVAILABLE:
+        return {"status": "error", "runs": [], "detail": "db_manager unavailable"}
+    try:
+        runs = await asyncio.to_thread(db_manager.list_test_runs, limit=min(int(limit), 500))
+        # Exclude the "Full Suite" aggregate row from pass/fail totals so the six
+        # per-suite records are not double-counted.
+        case_rows = [r for r in runs if str(r.get("suite") or "").lower() != "full suite"]
+        total_pass = sum(int(r.get("passed") or 0) for r in case_rows)
+        total_fail = sum(int(r.get("failed") or 0) for r in case_rows)
+        total_cases = total_pass + total_fail
+        return {
+            "status": "success",
+            "runs": runs,
+            "totals": {"passed": total_pass, "failed": total_fail, "total": total_cases},
+        }
+    except Exception as exc:  # noqa: BLE001
+        print(f"[WARN] [Test History] Read error: {exc}")
+        return {"status": "error", "runs": [], "detail": str(exc)}
+
 @app.get("/api/telemetry/stats")
 async def get_telemetry_stats():
     pool = await get_db()
@@ -989,7 +1219,7 @@ async def get_role_telemetry_stats(role: Optional[str] = "researcher", user_id: 
     pool = await get_db()
     async with pool.acquire() as conn:
         tbl = await get_active_insight_table(conn)
-        
+
         if user_id and user_id != 'usr_admin':
             vault_files = await conn.fetchval("SELECT COUNT(*) FROM file_system WHERE user_id = $1 OR user_id IS NULL", user_id)
             workspaces = await conn.fetchval(f"SELECT COUNT(*) FROM {tbl} WHERE user_id = $1 OR user_id IS NULL", user_id)
@@ -1008,7 +1238,7 @@ async def get_role_telemetry_stats(role: Optional[str] = "researcher", user_id: 
             flashcards = await conn.fetchval("SELECT COUNT(*) FROM student_flashcards")
 
     role_clean = (role or "researcher").lower().strip()
-    
+
     if role_clean == "professor":
         return {
             "role": "professor",
@@ -1099,7 +1329,7 @@ async def get_insightlens_workspaces(tool_type: Optional[str] = None, user_id: O
             state = json.loads(r["state_data"]) if ("state_data" in r and r["state_data"]) else {}
 
             ann_rows = await conn.fetch(
-                "SELECT page_number, tool_mode, stroke_color, brush_size, coordinate_points FROM canvas_annotations WHERE workspace_id = $1", 
+                "SELECT page_number, tool_mode, stroke_color, brush_size, coordinate_points FROM canvas_annotations WHERE workspace_id = $1",
                 r["id"]
             )
             ann_dict = {}
@@ -1141,7 +1371,7 @@ async def save_insightlens_workspace(payload: dict):
     file_id = payload.get("fileId")
     try: file_id = int(file_id) if file_id is not None else None
     except Exception: file_id = None
-    
+
     total_pages = int(payload.get("totalPages", 1))
     summary = str(payload.get("paperSummary", ""))
     chats_json = json.dumps(payload.get("chatHistory", []), default=str)
@@ -1162,7 +1392,7 @@ async def save_insightlens_workspace(payload: dict):
         existing = await conn.fetchrow(f"SELECT id FROM {tbl} WHERE id = $1", ws_id)
         if existing:
             await conn.execute(
-                f"""UPDATE {tbl} 
+                f"""UPDATE {tbl}
                    SET title = $1, file_id = $2, total_pages = $3, paper_summary = $4,
                        chat_history = $5, metadata = $6, state_data = $7, is_pinned = $8,
                        last_accessed = $9, user_id = $10
@@ -1171,7 +1401,7 @@ async def save_insightlens_workspace(payload: dict):
             )
         else:
             await conn.execute(
-                f"""INSERT INTO {tbl} 
+                f"""INSERT INTO {tbl}
                    (id, title, file_id, total_pages, paper_summary, chat_history, metadata, state_data, is_pinned, timestamp, last_accessed, user_id)
                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)""",
                 ws_id, title, file_id, total_pages, summary, chats_json, meta_json, state_json, is_pinned, time_str, last_acc, ws_user_id
@@ -1266,22 +1496,22 @@ async def save_math_session(payload: dict):
         ws_user_id = payload.get("userId") or payload.get("user_id") or "usr_admin"
 
         title = payload.get("title", "Untitled Math Session")
-        
+
         eqs = payload.get("equations", [])
         eqs_json = json.dumps(eqs, default=str) if isinstance(eqs, (list, dict)) else str(eqs or "[]")
-        
+
         sliders = payload.get("sliderValues", {})
         sliders_json = json.dumps(sliders, default=str) if isinstance(sliders, (dict, list)) else str(sliders or "{}")
-        
+
         logs = payload.get("outputLogs", "")
         logs_str = json.dumps(logs, default=str) if isinstance(logs, (dict, list)) else str(logs or "Simulation ready")
-            
+
         chats = payload.get("chatHistory", [])
         chats_json = json.dumps(chats, default=str) if isinstance(chats, (list, dict)) else str(chats or "[]")
-        
+
         charts = payload.get("chartData", {})
         charts_json = json.dumps(charts, default=str) if isinstance(charts, (dict, list)) else str(charts or "{}")
-        
+
         is_pinned = bool(payload.get("isPinned", False))
         time_str = str(payload.get("timestamp", str(datetime.date.today())))
         last_acc = str(payload.get("lastAccessed", datetime.datetime.now().isoformat()))
@@ -1289,15 +1519,15 @@ async def save_math_session(payload: dict):
         pool = await get_db()
         async with pool.acquire() as conn:
             existing = await conn.fetchrow(
-                "SELECT id FROM math_evaluator_sessions WHERE workspace_id = $1 OR id::text = $1", 
+                "SELECT id FROM math_evaluator_sessions WHERE workspace_id = $1 OR id::text = $1",
                 ws_id
             )
 
             if existing:
                 await conn.execute(
-                    """UPDATE math_evaluator_sessions 
-                       SET title = $1, expression_input = $2, variable_assignments = $3, 
-                           computed_result = $4, chat_history = $5, matrix_data = $6, 
+                    """UPDATE math_evaluator_sessions
+                       SET title = $1, expression_input = $2, variable_assignments = $3,
+                           computed_result = $4, chat_history = $5, matrix_data = $6,
                            is_pinned = $7, last_accessed = $8, user_id = $9, stored_at = CURRENT_TIMESTAMP
                        WHERE workspace_id = $10 OR id::text = $10""",
                     title, eqs_json, sliders_json, logs_str, chats_json, charts_json, is_pinned, last_acc, ws_user_id, ws_id
@@ -1305,14 +1535,14 @@ async def save_math_session(payload: dict):
             else:
                 try:
                     await conn.execute(
-                        """INSERT INTO math_evaluator_sessions 
+                        """INSERT INTO math_evaluator_sessions
                            (id, workspace_id, title, page_number, expression_input, variable_assignments, computed_result, chat_history, matrix_data, is_pinned, timestamp, last_accessed, user_id, stored_at)
                            VALUES ($1, $1, $2, 1, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP)""",
                         ws_id, title, eqs_json, sliders_json, logs_str, chats_json, charts_json, is_pinned, time_str, last_acc, ws_user_id
                     )
                 except Exception:
                     await conn.execute(
-                        """INSERT INTO math_evaluator_sessions 
+                        """INSERT INTO math_evaluator_sessions
                            (workspace_id, title, page_number, expression_input, variable_assignments, computed_result, chat_history, matrix_data, is_pinned, timestamp, last_accessed, user_id, stored_at)
                            VALUES ($1, $2, 1, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP)""",
                         ws_id, title, eqs_json, sliders_json, logs_str, chats_json, charts_json, is_pinned, time_str, last_acc, ws_user_id
@@ -1363,7 +1593,7 @@ async def get_domain_matrices(user_id: Optional[str] = None):
             rows = await conn.fetch("SELECT * FROM domain_workspaces WHERE user_id = $1 ORDER BY is_pinned DESC, last_accessed DESC", user_id)
         else:
             rows = await conn.fetch("SELECT * FROM domain_workspaces WHERE user_id = 'usr_admin' OR user_id IS NULL ORDER BY is_pinned DESC, last_accessed DESC")
-    
+
     results = []
     for r in rows:
         parsed_chat = safe_parse_json(r["chat_history"], [])
@@ -1412,8 +1642,8 @@ async def save_domain_matrix(matrix: dict):
         existing = await conn.fetchrow("SELECT id FROM domain_workspaces WHERE id = $1", m_id)
         if existing:
             await conn.execute(
-                """UPDATE domain_workspaces 
-                   SET title = $1, last_accessed = $2, is_pinned = $3, selected_files = $4, 
+                """UPDATE domain_workspaces
+                   SET title = $1, last_accessed = $2, is_pinned = $3, selected_files = $4,
                        matrix_data = $5, chat_history = $6, user_id = $7 WHERE id = $8""",
                 matrix.get("title", "Untitled Matrix"), str(datetime.datetime.now().isoformat()),
                 bool(matrix.get("isPinned", False)), sel_files, mat_data, chat_hist, ws_user_id, m_id
@@ -1468,11 +1698,44 @@ class LibraryItemUpdate(BaseModel):
 async def get_library_quota(user_id: Optional[str] = None):
     pool = await get_db()
     async with pool.acquire() as conn:
+        # Resolve 'LaTeX Projects' folder to ensure research papers are kept in separate dedicated storage
+        latex_folder = await conn.fetchrow("SELECT id FROM file_system WHERE type = 'folder' AND name = 'LaTeX Projects'")
+        latex_folder_id = latex_folder["id"] if latex_folder else None
+
         if user_id and user_id != 'usr_admin':
-            count = await conn.fetchval("SELECT COUNT(*) FROM file_system WHERE type = 'file' AND (user_id = $1 OR user_id IS NULL)", user_id)
+            if latex_folder_id:
+                count = await conn.fetchval(
+                    "SELECT COUNT(*) FROM file_system WHERE type = 'file' AND (user_id = $1 OR user_id IS NULL) AND (parent_id IS NULL OR parent_id != $2)",
+                    user_id, latex_folder_id
+                )
+                latex_count = await conn.fetchval(
+                    "SELECT COUNT(*) FROM file_system WHERE type = 'file' AND (user_id = $1 OR user_id IS NULL) AND parent_id = $2",
+                    user_id, latex_folder_id
+                )
+            else:
+                count = await conn.fetchval("SELECT COUNT(*) FROM file_system WHERE type = 'file' AND (user_id = $1 OR user_id IS NULL)", user_id)
+                latex_count = 0
         else:
-            count = await conn.fetchval("SELECT COUNT(*) FROM file_system WHERE type = 'file'")
-    return {"count": int(count or 0), "limit": 100, "used_bytes": int((count or 0) * 45000), "total_bytes": 104857600}
+            if latex_folder_id:
+                count = await conn.fetchval(
+                    "SELECT COUNT(*) FROM file_system WHERE type = 'file' AND (parent_id IS NULL OR parent_id != $1)",
+                    latex_folder_id
+                )
+                latex_count = await conn.fetchval(
+                    "SELECT COUNT(*) FROM file_system WHERE type = 'file' AND parent_id = $1",
+                    latex_folder_id
+                )
+            else:
+                count = await conn.fetchval("SELECT COUNT(*) FROM file_system WHERE type = 'file'")
+                latex_count = 0
+    return {
+        "count": int(count or 0),
+        "limit": 100,
+        "latex_count": int(latex_count or 0),
+        "latex_limit": "Unlimited",
+        "used_bytes": int((count or 0) * 45000),
+        "total_bytes": 104857600
+    }
 
 @app.get("/api/library")
 async def get_library_items(parentId: Optional[str] = None, user_id: Optional[str] = None):
@@ -1510,7 +1773,7 @@ async def create_library_item(item: LibraryItemCreate):
 
         if existing:
             row = await conn.fetchrow(
-                """UPDATE file_system 
+                """UPDATE file_system
                    SET text_content = $1, uploaded_at = CURRENT_TIMESTAMP, processing_status = 'unprocessed', user_id = $2
                    WHERE id = $3 RETURNING id, name, type, parent_id, uploaded_at""",
                 item.textContent or "", uid, existing["id"]
@@ -1621,7 +1884,7 @@ async def smart_fetch_library_file(file_id: str):
         )
     if not row:
         raise HTTPException(status_code=404, detail="File not found")
-    
+
     if row["processing_status"] == "complete" and row["ai_cache"] and row["ai_cache"] != "{}":
         return {"source": "cache", "data": safe_parse_json(row["ai_cache"], {})}
     else:
@@ -1682,10 +1945,10 @@ async def save_vault_note(note: dict):
     txt = note_data.get("text", "") or note.get("text", "") or ""
     ins = note_data.get("insight", "") or note.get("insight", "") or ""
     uid = (
-        note.get("user_id") or 
-        note.get("userId") or 
-        note_data.get("user_id") or 
-        note_data.get("userId") or 
+        note.get("user_id") or
+        note.get("userId") or
+        note_data.get("user_id") or
+        note_data.get("userId") or
         "usr_admin"
     )
     if not uid or str(uid).strip() in ("null", "undefined", "", "anonymous"):
@@ -1703,7 +1966,7 @@ async def save_vault_note(note: dict):
             src, title, p_num, txt, ins, img, uid, is_pinned, note_type
         )
     return {
-        "status": "success", 
+        "status": "success",
         "id": row["id"],
         "note": {
             "id": row["id"],
@@ -1821,17 +2084,25 @@ async def get_threads():
 # =====================================================================
 @app.post("/api/research/ingest")
 async def ingest_research_paper(file: UploadFile = File(...)):
-    if not file.filename.endswith('.pdf'):
+    try:
+        contents = await file.read()
+    except Exception as read_err:
+        raise HTTPException(status_code=400, detail=f"Could not read upload: {read_err}")
+
+    # Accept explicitly-named .pdf files as well as any payload that carries a
+    # classic PDF header — document titles reconstructed on the client may not
+    # end in ".pdf" even though the bytes are a genuine PDF.
+    is_pdf = (file.filename or "").lower().endswith(".pdf") or contents[:4] == b"%PDF"
+    if not is_pdf:
         raise HTTPException(status_code=400, detail="Must be a PDF.")
 
     if fitz is None:
         raise HTTPException(status_code=500, detail="PyMuPDF (fitz) is not installed on the server.")
 
     try:
-        contents = await file.read()
         doc = fitz.open(stream=contents, filetype="pdf")
         total_pages = doc.page_count
-        
+
         toc = doc.get_toc()
         parsed_sections = []
         if toc:
@@ -1846,7 +2117,7 @@ async def ingest_research_paper(file: UploadFile = File(...)):
         for page_idx in range(total_pages):
             page_num = page_idx + 1
             page = doc[page_idx]
-            text = page.get_text("text")
+            text = (page.get_text("text") or "").replace("\x00", "")
             text_memory_map[str(page_num)] = text
             if page_num <= 3 or page_num == total_pages:
                 full_text_sample += text + "\n"
@@ -1965,10 +2236,10 @@ async def translate_research_text(payload: dict):
     """
     text = (payload.get("text") or payload.get("query") or "").strip()
     target_lang = (payload.get("target_lang") or payload.get("language") or "bengali").strip().lower()
-    
+
     if not text:
         return {"status": "success", "translated_text": "", "translation": "", "response": "", "reply": ""}
-        
+
     lang_names = {
         "bn": "Bengali", "bengali": "Bengali", "বাংলা": "Bengali",
         "es": "Spanish", "spanish": "Spanish", "español": "Spanish",
@@ -1980,7 +2251,7 @@ async def translate_research_text(payload: dict):
         "ja": "Japanese", "japanese": "Japanese", "日本語": "Japanese"
     }
     target_name = lang_names.get(target_lang, target_lang.capitalize())
-    
+
     translated = ""
     if SLM_AVAILABLE:
         try:
@@ -2151,7 +2422,7 @@ async def run_research_chat(req: ResearchChatRequest):
                 max_tokens=650,
                 temperature=0.1
             ),
-            timeout=90.0
+            timeout=300.0
         )
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="Local LLM inference timed out during complex reasoning.")
@@ -2288,11 +2559,11 @@ async def generate_domain_matrix(request: MatrixSynthesisRequest):
     Extracts authentic specifications directly from paper texts without heuristic overrides.
     """
     pool = await get_db()
-    
+
     async def process_paper(p: MatrixPaperData, idx: int):
         title = p.title or f"Paper #{idx + 1}"
         paper_id_str = str(p.id)
-        
+
         # 0. Check paper_analysis_cache for existing extraction
         if DB_MANAGER_AVAILABLE:
             try:
@@ -2308,7 +2579,7 @@ async def generate_domain_matrix(request: MatrixSynthesisRequest):
                 print(f"[DEBUG] [Matrix Cache Check] {cache_err}")
 
         content = p.content or ""
-        
+
         # 1. Fetch from document_chunks or file_system if content was truncated or empty
         if len(content) < 300 and DB_MANAGER_AVAILABLE:
             try:
@@ -2326,7 +2597,7 @@ async def generate_domain_matrix(request: MatrixSynthesisRequest):
                         row = await conn.fetchrow("SELECT id, name, text_content FROM file_system WHERE id = $1", int(p.id))
                     except Exception:
                         row = await conn.fetchrow("SELECT id, name, text_content FROM file_system WHERE LOWER(name) LIKE LOWER($1) LIMIT 1", f"%{title[:20]}%")
-                    
+
                     if row and row["text_content"]:
                         raw = row["text_content"]
                         if (raw.startswith("data:application/pdf") or raw.startswith("data:") or raw.startswith("%PDF") or raw.startswith("JVBERi")) and fitz:
@@ -2372,8 +2643,21 @@ async def generate_domain_matrix(request: MatrixSynthesisRequest):
                     prompt=slm_prompt,
                     system_prompt="You are an expert scientific literature reviewer. Output only structured JSON analysis.",
                     expected_keys=["strengths", "models", "dataset"],
-                    max_tokens=650,
-                    retries=1
+                    max_tokens=800,
+                    retries=1,
+                    schema={
+                        "paper": "string:120",
+                        "year": "string:20",
+                        "data_specs": "string:180",
+                        "dataset": "string:140",
+                        "variables": "string:240",
+                        "models": "string:240",
+                        "strengths": "string:300",
+                        "weaknesses": "string:300",
+                        "result": "string:280",
+                        "notes": "string:300",
+                        "fri": "int",
+                    }
                 )
                 if parsed and isinstance(parsed, dict) and "strengths" in parsed:
                     matrix_entry = {
@@ -2497,7 +2781,7 @@ def is_genuine_math_line(line: str) -> bool:
     line = line.strip()
     if len(line) < 4 or len(line) > 130:
         return False
-    
+
     low = line.lower()
     excluded_keywords = [
         'university', 'department', 'author', 'abstract', 'introduction',
@@ -2508,12 +2792,12 @@ def is_genuine_math_line(line: str) -> bool:
     ]
     if any(k in low for k in excluded_keywords):
         return False
-    
+
     # Must have operator or LaTeX syntax
     has_operator = any(op in line for op in ['=', '≈', '≤', '≥', '∝', '∈', '∑', '∫', '∂', '∇', r'\frac', r'\sum', r'\int', r'\sigma'])
     if not has_operator:
         return False
-    
+
     # Check words vs symbols: exclude known mathematical and LaTeX command tokens
     math_tokens = {
         'softmax', 'sigmoid', 'tanh', 'relu', 'layernorm', 'attention', 'concat',
@@ -2525,7 +2809,7 @@ def is_genuine_math_line(line: str) -> bool:
     words = [w for w in re.findall(r'[a-zA-Z]{4,}', line) if w.lower() not in math_tokens]
     if len(words) > 6:
         return False
-    
+
     has_math_var = bool(re.search(r'[a-zA-Z_]\s*=\s*|σ|tanh|softmax|exp|log|W|Q|K|V|h_t|x_t|C_t|Z_|H_|d_k|L\(|F_1|MSE|loss|Attn|frac', line))
     return has_math_var
 
@@ -2533,7 +2817,7 @@ def normalize_math_candidate(cand: str, page_num: int = 1) -> dict:
     cand = cand.strip()
     clean = cand.replace('σ', r'\sigma').replace('·', r' \odot ').replace('−', '-').replace('⊤', '^T').replace('ℓ', r'\ell').replace('˜', r'\tilde{')
     clean_low = clean.lower()
-    
+
     # 1. LSTM Gates & Recurrence
     if re.search(r'\bi_?t\s*=', clean_low) or 'wxi' in clean_low:
         return {
@@ -2577,7 +2861,7 @@ def normalize_math_candidate(cand: str, page_num: int = 1) -> dict:
             "pageNum": page_num,
             "category": "hidden_output"
         }
-    
+
     # 2. Transformer / Multi-Head Attention
     elif 'att(' in clean_low or 'attention' in clean_low:
         return {
@@ -2621,7 +2905,7 @@ def normalize_math_candidate(cand: str, page_num: int = 1) -> dict:
             "pageNum": page_num,
             "category": "normalization"
         }
-        
+
     # 3. Softmax & Cross-Entropy Loss
     elif 'softmax' in clean_low:
         return {
@@ -2644,7 +2928,7 @@ def normalize_math_candidate(cand: str, page_num: int = 1) -> dict:
             "pageNum": page_num,
             "category": "evaluation_metric"
         }
-        
+
     # 4. General Mathematical Formulation
     else:
         tex = clean if clean.startswith("$$") else f"$$ {clean} $$"
@@ -2663,7 +2947,7 @@ async def extract_math_equations(req: MathExtractRequest):
     Returns structured list of LaTeX formulas, names, and page numbers.
     """
     pages_list = []
-    
+
     # 1. Resolve from Database File ID if provided
     if req.file_id is not None:
         try:
@@ -2673,7 +2957,7 @@ async def extract_math_equations(req: MathExtractRequest):
                     f_row = await conn.fetchrow("SELECT id, name, text_content FROM file_system WHERE id = $1", int(req.file_id))
                 except ValueError:
                     f_row = await conn.fetchrow("SELECT id, name, text_content FROM file_system WHERE name = $1 LIMIT 1", str(req.file_id))
-                
+
                 if f_row and f_row["text_content"]:
                     raw_content = f_row["text_content"]
                     if raw_content.startswith("data:application/pdf") or raw_content.startswith("data:") or raw_content.startswith("JVBERi"):
@@ -2693,7 +2977,7 @@ async def extract_math_equations(req: MathExtractRequest):
     # 2. Fallback to passed pages
     if not pages_list and req.pages:
         pages_list = req.pages
-        
+
     # 3. Fallback to raw text or content
     if not pages_list and (req.text or req.content):
         src_text = (req.text or req.content or "").strip()
@@ -2724,7 +3008,7 @@ async def extract_math_equations(req: MathExtractRequest):
         r'\b[A-Za-z_]\([a-zA-Z0-9_,\s\+\-\*\/]+\)\s*=\s*[^;\n\r]{2,90}|'
         r'\\(?:frac|sum|prod|int|sqrt|partial|mathbf|mathcal|sigma|mu|theta|alpha|beta|lambda|gamma)\b[^;\n\r]{2,90})'
     )
-    
+
     for page in pages_list:
         p_text = page.text or ""
         # Strategy A: Check discrete lines
@@ -2737,7 +3021,7 @@ async def extract_math_equations(req: MathExtractRequest):
                     raw_candidates.append(cand_obj)
                     if len(raw_candidates) >= (req.max_equations or 15):
                         break
-        
+
         # Strategy B: If line extraction found few, extract regex pattern matches within text
         if len(raw_candidates) < (req.max_equations or 15):
             matches = math_pattern.findall(p_text)
@@ -2761,7 +3045,7 @@ async def extract_math_equations(req: MathExtractRequest):
     if not raw_candidates:
         title_lower = (req.paper_title or "").lower()
         full_sample = " ".join([p.text for p in pages_list[:3]]).lower()
-        
+
         if any(k in title_lower or k in full_sample for k in ["transformer", "attention", "nlp", "language", "bert", "gpt", "translation", "sign"]):
             raw_candidates = [
                 {
@@ -2879,8 +3163,14 @@ async def analyze_math_equation(req: MathAnalyzeRequest):
     rag_context_snippets = []
     if req.paper_id:
         try:
-            chunks = await rag_engine.retrieve_rag_context(query=f"{name} {raw_latex}", paper_id=str(req.paper_id), top_k=2)
-            rag_context_snippets = [c["chunk_text"] for c in chunks if c.get("chunk_text")]
+            rag_context, _ = await asyncio.to_thread(
+                rag_engine.retrieve_rag_context,
+                query=f"{name} {raw_latex}",
+                paper_id=str(req.paper_id),
+                top_k=2
+            )
+            if rag_context:
+                rag_context_snippets = [rag_context]
         except Exception as e:
             print(f"[DEBUG] [Math Analyze RAG] Context lookup note: {e}")
 
@@ -2913,11 +3203,32 @@ async def analyze_math_equation(req: MathAnalyzeRequest):
         '  ],\n'
         '  "python_code": "Complete executable Python snippet with an evaluate(variables) function and print statement",\n'
         '  "eval_expr": "Valid Python single-line mathematical expression evaluating output y from primary variable x and other parameters, e.g. \'1.0 / (1.0 + math.exp(-x))\' or \'math.tanh(x)\' or \'x * 1.5 + 0.5\'"\n'
-        "}"
+        "}\n"
+        "\nOutput directives (STRICT): 'concept' exactly 2 sentences; 'rating' one short phrase; "
+        "'critique' at most 4 sentences; 'alternatives' 2-3 short sentences; 'variables' EXACTLY 3 "
+        "objects (symbol = single short variable name, label = 1-3 words, default/min/max/step = plain "
+        "numbers, effect = 1 sentence); 'python_code' a COMPACT runnable snippet (at most ~500 characters) that defines "
+        "exactly `def evaluate(variables):` (reads float parameters from the variables dict, computes the formula, "
+        "returns a float), then calls `output = evaluate(variables)` and prints it — do NOT rename the function; "
+        "'eval_expr' a single compact Python expression."
     )
 
     system_prompt = rag_engine.build_system_prompt("mathematician")
-    llm_analysis = await robust_llm_json(prompt, max_retries=2, system_prompt=system_prompt)
+    llm_analysis = await robust_llm_json(
+        prompt,
+        max_retries=1,
+        max_tokens=1300,
+        system_prompt=system_prompt,
+        schema={
+            "concept": "string:220",
+            "rating": "string:60",
+            "critique": "string:320",
+            "alternatives": "string:240",
+            "variables": "array:1-3:{symbol:string:8,label:string:48,default:float,min:float,max:float,step:float,effect:string:120}",
+            "python_code": "string:600",
+            "eval_expr": "string:140",
+        }
+    )
 
     # 3. Extract or fallback cleanly
     if llm_analysis and isinstance(llm_analysis, dict) and llm_analysis.get("variables"):
@@ -2984,7 +3295,7 @@ print(f"Computed Output: {{output:.6f}}")"""
     p_min = float(primary_var.get("min", -5.0))
     p_max = float(primary_var.get("max", 5.0))
     defaults = {v["symbol"]: float(v["default"]) for v in variables}
-    
+
     steps = 50
     step_sz = (p_max - p_min) / float(steps)
     chart_points = []
@@ -3112,7 +3423,7 @@ def analyze_manuscript_dynamically(title: str, content: str) -> dict:
     # Identify sections or paragraphs
     paragraphs = [p.strip() for p in text.split("\n\n") if len(p.strip()) > 50]
     low_text = text.lower()
-    
+
     # AI Stylometry & Cliché Audit
     ai_cliches = [
         "delve", "testament", "tapestry", "beacon", "pivotal", "multifaceted", "paramount",
@@ -3221,7 +3532,7 @@ def analyze_manuscript_dynamically(title: str, content: str) -> dict:
             "impact_delta": "-35.0 pts",
             "anchor": "flag-anchor-ai"
         })
-    
+
     if lacks_empirical:
         audit_flags.append({
             "id": "flag-emp-0",
@@ -3235,7 +3546,7 @@ def analyze_manuscript_dynamically(title: str, content: str) -> dict:
             "impact_delta": "-18.0 pts",
             "anchor": "flag-anchor-emp"
         })
-    
+
     # Flag 1: Empirical uncertainty / confidence intervals
     if not has_ci:
         audit_flags.append({
@@ -3351,13 +3662,12 @@ async def execute_rigor_audit(req: RigorAuditRequest):
     rag_context = ""
     if target_paper_id:
         try:
-            chunks = await rag_engine.retrieve_rag_context(
+            rag_context, _ = await asyncio.to_thread(
+                rag_engine.retrieve_rag_context,
                 query="methodology theoretical formulation empirical validation ablation baseline limitations",
                 paper_id=target_paper_id,
                 top_k=5
             )
-            if chunks:
-                rag_context = "\n\n".join([f"[{c.get('citation', 'Chunk')}] {c.get('chunk_text', '')}" for c in chunks])
         except Exception as re_err:
             print(f"[DEBUG] [Rigor Audit RAG] Retrieval note: {re_err}")
 
@@ -3393,10 +3703,27 @@ async def execute_rigor_audit(req: RigorAuditRequest):
         '    }\n'
         '  ],\n'
         '  "review_summary": "A comprehensive 2-paragraph peer-review critique summarizing theoretical soundness, empirical validation, and methodological vulnerabilities."\n'
-        "}"
+        "}\n"
+        "\nOutput directives (STRICT): 'audit_flags' EXACTLY 3 objects, one per distinct vulnerability "
+        "class; 'id' short like flag-1; 'severity' one of Critical|High|Medium|Low; 'title' a concise "
+        "phrase; 'description' at most 2 sentences; 'recommendation' 1-2 sentences; 'impact_delta' like "
+        "'-3.5 pts'; 'review_summary' 2 SHORT paragraphs totaling at most ~450 characters; "
+        "'dimensional_scores' plain numbers between 0 and 100; 'rigor_score' a plain number between 0 and 100."
     )
 
-    audit_data = await robust_llm_json(prompt, max_retries=2, system_prompt=system_prompt)
+    audit_data = await robust_llm_json(
+        prompt,
+        max_retries=1,
+        max_tokens=1200,
+        system_prompt=system_prompt,
+        schema={
+            "rigor_score": "float",
+            "verification_passed": "bool",
+            "dimensional_scores": "object:{empirical_rigor:float,mathematical_soundness:float,boundary_safety:float,reproducibility:float,claim_alignment:float}",
+            "audit_flags": "array:1-4:{id:string:16,category:string:40,severity:string:10,title:string:80,description:string:220,location:string:80,recommendation:string:200,impact_delta:string:12}",
+            "review_summary": "string:800",
+        }
+    )
 
     if not audit_data or not isinstance(audit_data, dict) or "rigor_score" not in audit_data:
         dynamic_eval = analyze_manuscript_dynamically(req.title or "Research Manuscript", req.content or "")
@@ -3496,13 +3823,60 @@ class CreateAuditRequest(BaseModel):
     paper_id: Optional[Union[str, int]] = None
     user_id: Optional[str] = None
 
+async def _create_audit_via_pool(title: str, paper_id: Optional[Union[str, int]], user_id: Optional[str]) -> str:
+    """Insert an audit_ledger row through the asyncpg pool.
+
+    Used when the psycopg2 db_manager is unavailable on this server process so
+    the 'Create New Audit' flow persists instead of returning status=offline.
+    paper_id is validated against the papers table first (matches db_manager's
+    insert_audit behaviour and avoids FK violations).
+    """
+    pool = await get_db()
+    audit_id = str(uuid.uuid4())
+    async with pool.acquire() as conn:
+        valid_paper = None
+        if paper_id:
+            row = await conn.fetchrow(
+                "SELECT paper_id FROM papers WHERE paper_id::text = $1 LIMIT 1", str(paper_id))
+            if row:
+                valid_paper = row["paper_id"]
+        await conn.execute(
+            """INSERT INTO audit_ledger
+                 (audit_id, paper_id, title, is_pinned, rigor_score, verification_passed,
+                  audit_flags, review_summary, plagiarism_data, terminology_data, detailed_rigor, user_id)
+               VALUES ($1, $2, $3, FALSE, 0.0, FALSE, '[]'::jsonb, $4, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, $5)""",
+            audit_id, valid_paper, title or "New Rigor Audit Ledger",
+            "Pending audit execution.", user_id or None,
+        )
+    return audit_id
+
+async def _list_audits_via_pool(user_id: Optional[str] = None):
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        if user_id:
+            rows = await conn.fetch(
+                """SELECT audit_id, paper_id, title, is_pinned, rigor_score, verification_passed,
+                          review_summary, created_at, user_id
+                   FROM audit_ledger WHERE user_id = $1 ORDER BY created_at DESC""", user_id)
+        else:
+            rows = await conn.fetch(
+                """SELECT audit_id, paper_id, title, is_pinned, rigor_score, verification_passed,
+                          review_summary, created_at, user_id
+                   FROM audit_ledger ORDER BY created_at DESC""")
+        return [dict(r) for r in rows]
+
 @app.post("/api/research/audits/new")
 async def create_new_audit_ledger(req: CreateAuditRequest):
     """Initialize a new clean audit ledger entry in the database."""
-    if not DB_MANAGER_AVAILABLE:
+    try:
+        if DB_MANAGER_AVAILABLE:
+            audit_id = await asyncio.to_thread(db_manager.create_audit, req.title, req.paper_id, req.user_id)
+        else:
+            audit_id = await _create_audit_via_pool(req.title, req.paper_id, req.user_id)
+        return {"status": "success", "auditId": audit_id, "title": req.title}
+    except Exception as e:  # noqa: BLE001
+        print(f"[WARN] Audit create fell back to offline treatment: {e}")
         return {"status": "offline", "auditId": str(uuid.uuid4()), "title": req.title}
-    audit_id = await asyncio.to_thread(db_manager.create_audit, req.title, req.paper_id, req.user_id)
-    return {"status": "success", "auditId": audit_id, "title": req.title}
 
 class UpdateAuditRequest(BaseModel):
     title: Optional[str] = None
@@ -3511,9 +3885,24 @@ class UpdateAuditRequest(BaseModel):
 @app.patch("/api/research/audits/{audit_id}")
 async def patch_audit_ledger(audit_id: str, req: UpdateAuditRequest):
     """Rename or pin/unpin an audit ledger record."""
-    if not DB_MANAGER_AVAILABLE:
-        raise HTTPException(status_code=503, detail="Database manager offline.")
-    success = await asyncio.to_thread(db_manager.update_audit, audit_id, title=req.title, is_pinned=req.is_pinned)
+    if DB_MANAGER_AVAILABLE:
+        success = await asyncio.to_thread(db_manager.update_audit, audit_id, title=req.title, is_pinned=req.is_pinned)
+    else:
+        pool = await get_db()
+        async with pool.acquire() as conn:
+            if req.title is not None and req.is_pinned is not None:
+                row = await conn.fetchrow(
+                    "UPDATE audit_ledger SET title = $1, is_pinned = $2 WHERE audit_id::text = $3 RETURNING audit_id",
+                    req.title, req.is_pinned, audit_id)
+            elif req.title is not None:
+                row = await conn.fetchrow(
+                    "UPDATE audit_ledger SET title = $1 WHERE audit_id::text = $2 RETURNING audit_id",
+                    req.title, audit_id)
+            else:
+                row = await conn.fetchrow(
+                    "UPDATE audit_ledger SET is_pinned = $1 WHERE audit_id::text = $2 RETURNING audit_id",
+                    req.is_pinned, audit_id)
+        success = row is not None
     if not success:
         raise HTTPException(status_code=404, detail="Audit ledger not found or update failed.")
     return {"status": "success", "auditId": audit_id, "title": req.title, "isPinned": req.is_pinned}
@@ -3522,7 +3911,11 @@ async def patch_audit_ledger(audit_id: str, req: UpdateAuditRequest):
 async def list_rigor_audits(user_id: Optional[str] = None):
     """List all rigor audits recorded in the Sovereign Audit Ledger."""
     if not DB_MANAGER_AVAILABLE:
-        return []
+        try:
+            return await _list_audits_via_pool(user_id)
+        except Exception as e:  # noqa: BLE001
+            print(f"[WARN] Audit list pool fallback failed: {e}")
+            return []
     audits = await asyncio.to_thread(db_manager.get_all_audits, user_id=user_id)
     return audits
 
@@ -3543,10 +3936,10 @@ async def get_rigor_audit_detail(audit_id: str):
             async with pool.acquire() as conn:
                 clean_id = str(audit_id).strip()
                 row = await conn.fetchrow("""
-                    SELECT * FROM audit_ledger 
-                    WHERE audit_id::text = $1 
-                       OR id::text = $1 
-                       OR paper_id::text = $1 
+                    SELECT * FROM audit_ledger
+                    WHERE audit_id::text = $1
+                       OR id::text = $1
+                       OR paper_id::text = $1
                        OR replace(audit_id::text, '-', '') = replace($1, '-', '')
                     LIMIT 1
                 """, clean_id)
@@ -3579,9 +3972,14 @@ async def get_rigor_audit_detail(audit_id: str):
 @app.delete("/api/research/audits/{audit_id}")
 async def delete_rigor_audit(audit_id: str):
     """Remove an audit ledger record."""
-    if not DB_MANAGER_AVAILABLE:
-        raise HTTPException(status_code=503, detail="Database manager offline.")
-    success = await asyncio.to_thread(db_manager.delete_audit, audit_id)
+    if DB_MANAGER_AVAILABLE:
+        success = await asyncio.to_thread(db_manager.delete_audit, audit_id)
+    else:
+        pool = await get_db()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "DELETE FROM audit_ledger WHERE audit_id::text = $1 RETURNING audit_id", audit_id)
+        success = row is not None
     if not success:
         raise HTTPException(status_code=404, detail="Audit not found or could not be removed.")
     return {"status": "success", "deleted": audit_id}
@@ -3633,7 +4031,7 @@ async def check_manuscript_plagiarism(req: PlagiarismCheckRequest):
 
     # Collect reference sources: DB papers + Vault documents + canonical baseline
     reference_docs = []
-    
+
     # 1. From database papers
     if DB_MANAGER_AVAILABLE:
         try:
@@ -3876,7 +4274,12 @@ async def check_ai_writing_patterns(req: AIPatternsCheckRequest):
             "Respond strictly in valid JSON:\n"
             '{"ai_probability": float (0-100), "reasoning": "brief stylistic evaluation"}'
         )
-        llm_style = await robust_llm_json(llm_prompt, max_retries=1)
+        llm_style = await robust_llm_json(
+            llm_prompt,
+            max_retries=1,
+            max_tokens=200,
+            schema={"ai_probability": "float", "reasoning": "string:280"}
+        )
         if llm_style and isinstance(llm_style, dict) and "ai_probability" in llm_style:
             l_prob = float(llm_style["ai_probability"])
             ai_prob = max(4.0, min(94.0, round(0.55 * ai_prob + 0.45 * l_prob, 1)))
@@ -4007,7 +4410,7 @@ async def evaluate_terminology_and_rigor(req: TerminologyGuardRequest):
     raw_acronyms = set(re.findall(r'\b[A-Z]{2,5}\b', text))
     standard_skip = {"IEEE", "ACM", "PDF", "GPU", "CPU", "RAM", "URL", "API", "USA", "UK"}
     acronym_analysis = []
-    
+
     for acr in sorted(raw_acronyms):
         if acr in standard_skip:
             continue
@@ -4146,9 +4549,9 @@ async def get_student_flashcards(user_id: Optional[str] = None, paper_title: Opt
             params.append(f"%{paper_title}%")
             query += f" AND paper_title ILIKE ${len(params)}"
         query += " ORDER BY id DESC"
-        
+
         rows = await conn.fetch(query, *params)
-        
+
         if not rows and not user_id:
             # Provide foundational seed study cards for instant exploration
             return [
@@ -4198,9 +4601,13 @@ async def get_student_flashcards(user_id: Optional[str] = None, paper_title: Opt
             p_clean = paper_title.replace("%", "").strip()
             paper_context = ""
             try:
-                chunks = await rag_engine.retrieve_rag_context(query=f"architecture methodology formulation {p_clean}", top_k=4)
-                if chunks:
-                    paper_context = "\n".join([c["chunk_text"] for c in chunks if c.get("chunk_text")])
+                rag_ctx, _ = await asyncio.to_thread(
+                    rag_engine.retrieve_rag_context,
+                    query=f"architecture methodology formulation {p_clean}",
+                    top_k=4
+                )
+                if rag_ctx:
+                    paper_context = rag_ctx
             except Exception as e:
                 print(f"[DEBUG] [Flashcards RAG] Note: {e}")
 
@@ -4216,10 +4623,18 @@ async def get_student_flashcards(user_id: Optional[str] = None, paper_title: Opt
                 '      "formula": "LaTeX formula representing this concept, e.g. \\\\text{Attention}(Q, K, V) = \\\\text{softmax}(...)"\n'
                 '    }\n'
                 '  ]\n'
-                "}"
+                "}\n"
+                "\nOutput directives (STRICT): 'cards' EXACTLY 4 objects; 'concept' 1-3 words; "
+                "'definition' at most 3 sentences; 'formula' a single compact LaTeX expression."
             )
             system_prompt = rag_engine.build_system_prompt("student_tutor")
-            llm_cards = await robust_llm_json(prompt, max_retries=2, system_prompt=system_prompt)
+            llm_cards = await robust_llm_json(
+                prompt,
+                max_retries=1,
+                max_tokens=900,
+                system_prompt=system_prompt,
+                schema={"cards": "array:4-4:{concept:string:60,definition:string:320,formula:string:180}"}
+            )
 
             cards_to_insert = []
             if llm_cards and isinstance(llm_cards, dict) and llm_cards.get("cards"):
@@ -4261,7 +4676,7 @@ async def get_student_flashcards(user_id: Optional[str] = None, paper_title: Opt
                 return created_cards
         elif not rows and not user_id:
             return []
-        
+
         return [
             {
                 "id": r["id"],
@@ -4282,7 +4697,7 @@ async def save_or_update_flashcard(card: FlashcardPayload):
     async with pool.acquire() as conn:
         if card.id:
             row = await conn.fetchrow("""
-                UPDATE student_flashcards 
+                UPDATE student_flashcards
                 SET mastery_level = COALESCE($1, mastery_level),
                     concept = COALESCE($2, concept),
                     definition = COALESCE($3, definition),
@@ -4296,10 +4711,10 @@ async def save_or_update_flashcard(card: FlashcardPayload):
                 VALUES ($1, $2, $3, $4, $5, $6)
                 RETURNING id, user_id, paper_title, concept, definition, formula, mastery_level, created_at
             """, card.user_id or "usr_student", card.paper_title or "Untitled Study", card.concept, card.definition, card.formula or "", card.mastery_level or 0)
-        
+
         if not row:
             raise HTTPException(status_code=404, detail="Flashcard not found.")
-        
+
         return {
             "status": "success",
             "card": {
@@ -4327,7 +4742,7 @@ async def generate_flashcards_from_text(payload: dict):
     title = payload.get("paper_title") or "Research Manuscript"
     content = payload.get("content") or ""
     user_id = payload.get("user_id") or "usr_student"
-    
+
     prompt = (
         f"Synthesize 4 high-yield graduate study flashcards for the research paper: '{title}'.\n"
         + (f"Content Excerpt:\n{content[:2000]}\n" if content else "") +
@@ -4340,10 +4755,18 @@ async def generate_flashcards_from_text(payload: dict):
         '      "formula": "LaTeX formula representing this concept"\n'
         '    }\n'
         '  ]\n'
-        "}"
+        "}\n"
+        "\nOutput directives (STRICT): 'cards' EXACTLY 4 objects; 'concept' 1-3 words; "
+        "'definition' at most 3 sentences; 'formula' a single compact LaTeX expression."
     )
     system_prompt = rag_engine.build_system_prompt("student_tutor")
-    llm_cards = await robust_llm_json(prompt, max_retries=2, system_prompt=system_prompt)
+    llm_cards = await robust_llm_json(
+        prompt,
+        max_retries=1,
+        max_tokens=900,
+        system_prompt=system_prompt,
+        schema={"cards": "array:4-4:{concept:string:60,definition:string:320,formula:string:180}"}
+    )
 
     generated = []
     if llm_cards and isinstance(llm_cards, dict) and llm_cards.get("cards"):
@@ -4388,7 +4811,7 @@ async def generate_flashcards_from_text(payload: dict):
                 "mastery_level": 0
             }
         ]
-    
+
     # Persist to database
     pool = await get_db()
     persisted_cards = []
@@ -4409,7 +4832,7 @@ async def generate_flashcards_from_text(payload: dict):
                 "mastery_level": row["mastery_level"],
                 "created_at": str(row["created_at"])
             })
-            
+
     return {
         "status": "success",
         "count": len(persisted_cards),
@@ -4442,7 +4865,7 @@ async def get_code_implementations(user_id: Optional[str] = None, paper_title: O
             params.append(f"%{paper_title}%")
             query += f" AND paper_title ILIKE ${len(params)}"
         query += " ORDER BY id DESC"
-        
+
         rows = await conn.fetch(query, *params)
         if not rows and not user_id:
             # Return baseline seed implementations
@@ -4480,13 +4903,13 @@ class ScaledDotProductAttention(nn.Module):
         d_k = q.size(-1)
         # Scaled attention logits: [B, H, S_q, S_k]
         scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(d_k)
-        
+
         if mask is not None:
             scores = scores.masked_fill(mask == 0, -1e9)
-            
+
         attn_weights = F.softmax(scores, dim=-1)
         attn_weights = self.dropout(attn_weights)
-        
+
         # Context vectors: [B, H, S_q, d_v]
         context = torch.matmul(attn_weights, v)
         return context, attn_weights
@@ -4542,7 +4965,7 @@ if __name__ == "__main__":
                     "created_at": str(datetime.datetime.now())
                 }
             ]
-        
+
         return [
             {
                 "id": r["id"],
@@ -4579,10 +5002,10 @@ async def save_code_implementation(code: CodePayload):
                 VALUES ($1, $2, $3, $4, $5, $6, $7)
                 RETURNING id, user_id, paper_title, algorithm_name, language, code_snippet, complexity, docstring, created_at
             """, code.user_id or "usr_programmer", code.paper_title or "Untitled Research", code.algorithm_name, code.language or "python", code.code_snippet, code.complexity or "O(N)", code.docstring or "")
-        
+
         if not row:
             raise HTTPException(status_code=404, detail="Code implementation not found.")
-            
+
         return {
             "status": "success",
             "implementation": {
@@ -4617,9 +5040,13 @@ async def extract_pytorch_algorithm(payload: dict):
     paper_context = content
     if not paper_context or len(paper_context) < 300:
         try:
-            chunks = await rag_engine.retrieve_rag_context(query=f"algorithm forward pass architecture {title}", top_k=3)
-            if chunks:
-                paper_context = "\n\n".join([c["chunk_text"] for c in chunks if c.get("chunk_text")])
+            rag_ctx, _ = await asyncio.to_thread(
+                rag_engine.retrieve_rag_context,
+                query=f"algorithm forward pass architecture {title}",
+                top_k=3
+            )
+            if rag_ctx:
+                paper_context = rag_ctx
         except Exception as e:
             print(f"[DEBUG] [Code Extract RAG] Note: {e}")
 
@@ -4632,12 +5059,23 @@ async def extract_pytorch_algorithm(payload: dict):
         '  "algorithm_name": "Precise CamelCase class name (e.g. ScaledDotProductAttention, MultiHeadAttention, SpatialResidualBlock)",\n'
         '  "complexity": "Big-O complexity string (e.g. O(N^2 * d) or O(B * C * H * W))",\n'
         '  "docstring": "Concise docstring explaining the mathematical transformation and tensor shape contracts",\n'
-        '  "code_snippet": "Complete standalone Python code string starting with imports (torch, torch.nn as nn, etc.), followed by the nn.Module class with typed forward method, and ending with a runnable `if __name__ == \'__main__\':` verification block with dummy tensor forward pass and shape assertion"\n'
+        '  "code_snippet": "Complete standalone Python code string starting with the import lines `import torch` and `import torch.nn as nn` (these MUST be on their own lines at the very top of the snippet), followed by a COMPACT nn.Module class with a `def forward(self, ...)` typed method, and ending with a short runnable `if __name__ == \'__main__\':` verification block with a dummy tensor forward pass and shape assertion. Keep the snippet VERY COMPACT (at most ~500 characters, at most 14 lines) while remaining complete and runnable. Prioritize the imports and the forward method over verbose variable declarations — do NOT write a long docstring or full attention/multi-layer bodies; a minimal correct skeleton beats a long truncated one."\n'
         "}"
     )
 
     system_prompt = rag_engine.build_system_prompt("coder")
-    llm_code = await robust_llm_json(prompt, max_retries=2, system_prompt=system_prompt)
+    llm_code = await robust_llm_json(
+        prompt,
+        max_retries=1,
+        max_tokens=1200,
+        system_prompt=system_prompt,
+        schema={
+            "algorithm_name": "string:80",
+            "complexity": "string:60",
+            "docstring": "string:320",
+            "code_snippet": "string:600",
+        }
+    )
 
     if llm_code and isinstance(llm_code, dict) and llm_code.get("code_snippet"):
         algo_name = str(llm_code.get("algorithm_name", f"{clean_name}Layer")).strip()
@@ -4651,6 +5089,11 @@ async def extract_pytorch_algorithm(payload: dict):
             code_text = code_text[3:].strip()
         if code_text.endswith("```"):
             code_text = code_text[:-3].strip()
+        # Normalize: guarantee the snippet is importable/executable. The LLM
+        # occasionally spends its character budget on the class body and omits
+        # the standard torch imports; prepend them so the code stays runnable.
+        if code_text and "import torch" not in code_text:
+            code_text = "import torch\nimport torch.nn as nn\n" + code_text
         generated_code = code_text
     else:
         algo_name = f"{clean_name}Layer"
@@ -4665,7 +5108,7 @@ class {algo_name}(nn.Module):
     """
     Automated PyTorch implementation synthesized from:
     '{title}'
-    
+
     Design:
         Applies parameterized nonlinear transformations with residual routing,
         preserving gradient flow across deep computational graphs.
@@ -4745,7 +5188,7 @@ async def export_citations(
     first_author_surname = authors.split(",")[0].split()[-1] if authors else "Scholar"
     clean_year = year or 2024
     bib_key = f"{first_author_surname}{clean_year}{re.sub(r'[^a-zA-Z]', '', clean_title)[:8]}"
-    
+
     bibtex = f"""@article{{{bib_key},
   title = {{{{{clean_title}}}}},
   author = {{{authors}}},
@@ -4777,10 +5220,10 @@ async def generate_citation_from_paper(payload: dict):
     year = payload.get("year") or 2024
     journal = payload.get("journal") or "Sovereign Academic Archive"
     doi = payload.get("doi") or f"10.48550/arXiv.{datetime.datetime.now().strftime('%y%m')}.{random.randint(10000, 99999) if 'random' in globals() else '01842'}"
-    
+
     first_author_surname = authors.split(",")[0].split()[-1] if authors else "Author"
     bib_key = f"{first_author_surname}{year}{re.sub(r'[^a-zA-Z]', '', title)[:8]}"
-    
+
     bibtex = f"""@article{{{bib_key},
   title = {{{{{title}}}}},
   author = {{{authors}}},
@@ -4809,19 +5252,19 @@ async def get_admin_system_stats():
     """Aggregates institutional lab telemetry: multi-user accounts, storage, tables, and DB status."""
     pool = await get_db()
     start_time = datetime.datetime.now()
-    
+
     async with pool.acquire() as conn:
         # DB Latency check
         await conn.fetchval("SELECT 1")
         latency_ms = round((datetime.datetime.now() - start_time).total_seconds() * 1000, 2)
-        
+
         # User accounts & role breakdown
         users = await conn.fetch("SELECT id, email, name, role FROM users ORDER BY id ASC")
         role_counts = {}
         for u in users:
             r = u["role"]
             role_counts[r] = role_counts.get(r, 0) + 1
-            
+
         # Table volume metrics
         vault_count = await conn.fetchval("SELECT count(*) FROM file_system")
         ws_count = await conn.fetchval("SELECT count(*) FROM insightlens_workspaces")
@@ -4830,10 +5273,10 @@ async def get_admin_system_stats():
         audits_count = await conn.fetchval("SELECT count(*) FROM audit_ledger")
         flashcards_count = await conn.fetchval("SELECT count(*) FROM student_flashcards")
         code_count = await conn.fetchval("SELECT count(*) FROM code_implementations")
-        
+
         # Recent audit records for governance
         recent_audits = await conn.fetch("""
-            SELECT audit_id, rigor_score, verification_passed, created_at 
+            SELECT audit_id, rigor_score, verification_passed, created_at
             FROM audit_ledger ORDER BY created_at DESC LIMIT 5
         """)
 
@@ -4883,4 +5326,40 @@ async def get_admin_system_stats():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+    import socket
+
+    # Check if port 8000 is available, otherwise find a free port
+    def find_free_port(start_port=8000, max_attempts=100):
+        for port in range(start_port, start_port + max_attempts):
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.bind(('127.0.0.1', port))
+                    return port
+            except OSError:
+                continue
+        return start_port  # Fallback, let uvicorn handle the error
+
+    port = find_free_port(8000)
+
+    # Use 0.0.0.0 to bind to all interfaces (more reliable on Windows)
+    # Disable reload on Windows to avoid WinError 10013 with file watchers
+    try:
+        uvicorn.run(
+            "main:app",
+            host="0.0.0.0",
+            port=port,
+            reload=False,  # Disable reload to prevent socket permission issues on Windows
+            log_level="info"
+        )
+    except OSError as e:
+        if e.winerror == 10013:
+            print(f"\n[ERROR] Port {port} access denied (WinError 10013).")
+            print("This usually means:")
+            print("  1. Antivirus/firewall is blocking the port")
+            print("  2. Another process is using the port")
+            print("  3. Insufficient permissions")
+            print("\nTry:")
+            print("  - Run as Administrator")
+            print("  - Add Python to firewall exceptions")
+            print("  - Use a different port: python main.py --port 8001")
+        raise

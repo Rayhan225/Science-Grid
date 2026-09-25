@@ -1,0 +1,17 @@
+{
+  "suite": "Backend API Testing",
+  "generated": "2026-09-24 14:01:59",
+  "passed": 0,
+  "failed": 1,
+  "warned": 0,
+  "total": 1,
+  "cases": [
+    {
+      "id": "Backend API Testing-001",
+      "section": "Authentication & Profile (port 8000)",
+      "name": "Suite execution completed without crash",
+      "status": "FAIL",
+      "detail": "le()\n             ^^^^^^^^^^^^^^^^^^^^^^^\n  File \"E:\\Science Grid - Copy\\tests\\test_backend_api.py\", line 63, in test_auth_and_profile\n    r = requests.post(f\"{API_BASE}/api/v1/auth/register\",\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\Rayhan\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\requests\\api.py\", line 115, in post\n    return request(\"post\", url, data=data, json=json, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\Rayhan\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\requests\\api.py\", line 59, in request\n    return session.request(method=method, url=url, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\Rayhan\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\requests\\sessions.py\", line 589, in request\n    resp = self.send(prep, **send_kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\Rayhan\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\requests\\sessions.py\", line 703, in send\n    r = adapter.send(request, **kwargs)\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nrequests.exceptions.ConnectionError: HTTPConnectionPool(host='127.0.0.1', port=8000): Max retries exceeded with url: /api/v1/auth/register (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=8000): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))\n"
+    }
+  ]
+}

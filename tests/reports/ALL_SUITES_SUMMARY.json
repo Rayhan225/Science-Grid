@@ -1,0 +1,80 @@
+{
+  "generated": "2026-09-24 03:53:21",
+  "passed": 339,
+  "failed": 0,
+  "total": 339,
+  "suites": [
+    {
+      "script": "test_backend_api.py",
+      "results_json_name": "backend_api_results.json",
+      "status": "PASS",
+      "exit_code": 0,
+      "passed": 102,
+      "failed": 0,
+      "total": 102,
+      "seconds": 30.4,
+      "results_json": "E:\\Science Grid - Copy\\tests\\reports\\backend_api_results.json",
+      "ok": true
+    },
+    {
+      "script": "test_database.py",
+      "results_json_name": "database_results.json",
+      "status": "PASS",
+      "exit_code": 0,
+      "passed": 46,
+      "failed": 0,
+      "total": 46,
+      "seconds": 17.2,
+      "results_json": "E:\\Science Grid - Copy\\tests\\reports\\database_results.json",
+      "ok": true
+    },
+    {
+      "script": "test_frontend_selenium.py",
+      "results_json_name": "frontend_selenium_results.json",
+      "status": "PASS",
+      "exit_code": 0,
+      "passed": 39,
+      "failed": 0,
+      "total": 39,
+      "seconds": 68.4,
+      "results_json": "E:\\Science Grid - Copy\\tests\\reports\\frontend_selenium_results.json",
+      "ok": true
+    },
+    {
+      "script": "test_user_workflows.py",
+      "results_json_name": "user_workflows_results.json",
+      "status": "PASS",
+      "exit_code": 0,
+      "passed": 70,
+      "failed": 0,
+      "total": 70,
+      "seconds": 288.8,
+      "results_json": "E:\\Science Grid - Copy\\tests\\reports\\user_workflows_results.json",
+      "ok": true
+    },
+    {
+      "script": "test_llm_features.py",
+      "results_json_name": "llm_features_results.json",
+      "status": "PASS",
+      "exit_code": 0,
+      "passed": 59,
+      "failed": 0,
+      "total": 59,
+      "seconds": 596.8,
+      "results_json": "E:\\Science Grid - Copy\\tests\\reports\\llm_features_results.json",
+      "ok": true
+    },
+    {
+      "script": "test_llm_ui_selenium.py",
+      "results_json_name": "llm_ui_selenium_results.json",
+      "status": "PASS",
+      "exit_code": 0,
+      "passed": 23,
+      "failed": 0,
+      "total": 23,
+      "seconds": 343.8,
+      "results_json": "E:\\Science Grid - Copy\\tests\\reports\\llm_ui_selenium_results.json",
+      "ok": true
+    }
+  ]
+}

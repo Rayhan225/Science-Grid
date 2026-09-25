@@ -141,10 +141,27 @@ def init_tables():
                 updated_at TIMESTAMPTZ DEFAULT NOW(),
                 CONSTRAINT unique_paper_analysis UNIQUE (paper_id, analysis_type)
             );
+
+            CREATE TABLE IF NOT EXISTS test_runs (
+                run_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                suite VARCHAR(120) NOT NULL,
+                script VARCHAR(200),
+                status VARCHAR(20) NOT NULL DEFAULT 'PASS',
+                passed INT DEFAULT 0,
+                failed INT DEFAULT 0,
+                warned INT DEFAULT 0,
+                total INT DEFAULT 0,
+                seconds REAL DEFAULT 0,
+                generated_at TIMESTAMPTZ DEFAULT NOW(),
+                results JSONB DEFAULT '{}'::jsonb,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_test_runs_suite ON test_runs(suite);
+            CREATE INDEX IF NOT EXISTS idx_test_runs_generated ON test_runs(generated_at DESC);
         """)
     print(
         "[OK] [DB Manager] Core research and vector tables verified "
-        "(papers, paper_sections, math_evaluations, audit_ledger, document_chunks, user_memory_graph, paper_analysis_cache)."
+        "(papers, paper_sections, math_evaluations, audit_ledger, document_chunks, user_memory_graph, paper_analysis_cache, test_runs)."
     )
 
 
@@ -755,7 +772,7 @@ def insert_document_chunks_batch(chunks: List[Dict]) -> int:
                 int(c.get("chunk_index", 0)),
                 int(c.get("page_number", 1)),
                 c.get("section_title") or "General",
-                c.get("content", ""),
+                (c.get("content", "") or "").replace("\x00", ""),
                 int(c.get("token_count", 0)),
                 emb_str,
                 json.dumps(meta)
@@ -989,6 +1006,55 @@ def set_cached_paper_analysis(paper_id: str, analysis_type: str, data: Dict) -> 
 # ══════════════════════════════════════════════════════════════
 # UTILITY
 # ══════════════════════════════════════════════════════════════
+
+def insert_test_run(suite: str, status: str = "PASS", passed: int = 0,
+                    failed: int = 0, warned: int = 0, total: int = 0,
+                    seconds: float = 0.0, script: str = None,
+                    results: Optional[Dict] = None) -> str:
+    """Record a test-suite run in the persistent test history."""
+    run_id = str(uuid.uuid4())
+    with get_cursor() as cur:
+        cur.execute(
+            """INSERT INTO test_runs
+                   (run_id, suite, script, status, passed, failed, warned,
+                    total, seconds, results)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+               RETURNING run_id""",
+            (run_id, suite, script, status, int(passed), int(failed), int(warned),
+             int(total), float(seconds), json.dumps(results or {}))
+        )
+        row = cur.fetchone()
+        return str(row["run_id"])
+
+
+def list_test_runs(limit: int = 100) -> List[Dict]:
+    """Return recent test runs, newest first."""
+    with get_cursor() as cur:
+        cur.execute(
+            """SELECT run_id, suite, script, status, passed, failed, warned, total,
+                      seconds, generated_at, results
+               FROM test_runs ORDER BY generated_at DESC LIMIT %s""",
+            (int(limit),)
+        )
+        rows = cur.fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["generated_at"] = str(d.get("generated_at") or "")
+            d["run_id"] = str(d.get("run_id") or "")
+            out.append(d)
+        return out
+
+
+def delete_test_runs(suite: str = None, limit: int = 0) -> int:
+    """Delete test-run history (all rows, or filtered by suite)."""
+    with get_cursor() as cur:
+        if suite:
+            cur.execute("DELETE FROM test_runs WHERE suite = %s", (suite,))
+        else:
+            cur.execute("DELETE FROM test_runs")
+        return cur.rowcount
+
 
 def close():
     """Close the database connection."""

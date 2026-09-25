@@ -1,9 +1,16 @@
 // src/components/Header.jsx
-import React from 'react';
-import { 
-  Activity, Sliders, BookOpen, GitCompare, 
-  Database, TerminalSquare, Settings as SettingsIcon, LayoutDashboard, ShieldCheck 
+import {
+  Activity,
+  BookOpen,
+  Database,
+  FileCode,
+  GitCompare,
+  LayoutDashboard,
+  Settings as SettingsIcon,
+  ShieldCheck,
+  Sliders
 } from 'lucide-react';
+import React from 'react';
 import { useTheme } from '../context/ThemeContext';
 
 export default function Header({ status, currentView, onViewChange }) {
@@ -30,6 +37,14 @@ export default function Header({ status, currentView, onViewChange }) {
       accent: 'text-cyan-400',
       ring: 'border-cyan-500/30',
       defaultStatus: 'Dashboard Ready'
+    },
+    'latex-studio': {
+      icon: FileCode,
+      label: 'LaTeX Studio',
+      subtext: 'Overleaf-Grade TeX Live IDE',
+      accent: 'text-amber-400',
+      ring: 'border-amber-500/30',
+      defaultStatus: 'LaTeX Studio Ready'
     },
     'math-evaluator': {
       icon: Sliders,
@@ -88,39 +103,46 @@ export default function Header({ status, currentView, onViewChange }) {
   const displayStatus = (status && status !== 'Ready') ? status : currentConfig.defaultStatus;
 
   return (
-    <header className={`${themeClasses.bgHeader} px-4 sm:px-8 py-3.5 flex items-center relative z-40 print:hidden transition-colors border-b border-inherit`}>
-      
-      {/* Left: Minimal branding / breadcrumb — fixed width to balance layout */}
-      <div className="flex items-center gap-3 flex-shrink-0 w-36">
-        <div className="flex items-center gap-2.5 cursor-pointer group" onClick={() => onViewChange('dashboard')}>
-          <div className={`w-7 h-7 rounded-lg flex items-center justify-center border transition-transform group-hover:scale-105 ${themeClasses.accentBg} ${themeClasses.accentBorder} bg-opacity-20`}>
-            <span className={`text-xs font-bold font-mono ${themeClasses.accentText}`}>SG</span>
+    <header className={`${themeClasses.bgHeader} px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between relative z-40 print:hidden transition-colors duration-300 border-b border-inherit`}>
+
+      {/* Left: Minimal branding / breadcrumb — flex-1 to guarantee symmetric centering */}
+      <div className="flex-1 flex items-center justify-start gap-3 min-w-0">
+        <div className="flex items-center gap-2.5 sm:gap-3 cursor-pointer group" onClick={() => onViewChange('dashboard')}>
+          <div className={`w-8 h-8 rounded-xl flex items-center justify-center border transition-all duration-300 group-hover:scale-105 shadow-md ${themeClasses.accentBg} ${themeClasses.accentBorder} bg-opacity-20`}>
+            <span className={`text-xs font-black font-mono tracking-tight ${themeClasses.accentText}`}>SG</span>
           </div>
-          <span className={`text-xs font-serif font-bold tracking-wide hidden sm:inline ${isLight ? 'text-slate-900' : 'text-white'}`}>ScholarGrid</span>
+          <span className={`text-sm font-serif font-bold tracking-wide hidden sm:inline transition-colors ${isLight ? 'text-slate-900' : 'text-white'}`}>
+            ScholarGrid
+          </span>
         </div>
       </div>
 
-      {/* Center: iPhone Dynamic Island Style Floating Capsule — flex-centered, not absolute */}
-      <div className="flex-1 flex justify-center min-w-0">
-        <div className={`flex items-center gap-3 px-4 py-1.5 rounded-full border backdrop-blur-xl shadow-2xl transition-all duration-500 ease-out hover:scale-105 max-w-md ${isLight ? 'bg-white/80 border-slate-200 text-slate-800' : 'bg-black/70 border-white/10 text-slate-200'} ${currentConfig.ring}`}>
-          <div className={`w-5 h-5 rounded-full flex items-center justify-center bg-white/5 flex-shrink-0 ${currentConfig.accent}`}>
-            <Icon size={13} />
+      {/* Center: Dynamic Island Floating Capsule — flex-shrink-0 for absolute optical centering */}
+      <div className="flex-shrink-0 flex justify-center px-2 max-w-full">
+        <div className={`flex items-center gap-2.5 sm:gap-3 px-3.5 sm:px-4.5 py-1.5 rounded-full border backdrop-blur-2xl shadow-xl transition-all duration-300 ease-out hover:scale-[1.02] max-w-xs sm:max-w-md lg:max-w-lg ${
+          isLight ? 'bg-white/90 border-slate-200 text-slate-800 shadow-slate-200/50' : 'bg-black/75 border-white/15 text-slate-100'
+        } ${currentConfig.ring}`}>
+          <div className={`w-6 h-6 rounded-full flex items-center justify-center bg-white/10 flex-shrink-0 ${currentConfig.accent}`}>
+            <Icon size={14} />
           </div>
-          <div className="flex items-center gap-2 text-xs font-mono tracking-wider min-w-0">
+          <div className="flex items-center gap-2 text-xs sm:text-sm font-mono tracking-wider min-w-0">
             <span className="font-bold whitespace-nowrap">{currentConfig.label}</span>
-            <span className="opacity-30">•</span>
-            <span className="text-[10px] opacity-70 hidden md:inline truncate">{currentConfig.subtext}</span>
+            <span className="opacity-30 hidden sm:inline">•</span>
+            <span className="text-[11px] sm:text-xs opacity-70 hidden md:inline truncate max-w-[180px] lg:max-w-[240px]">{currentConfig.subtext}</span>
           </div>
-          <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse ml-1 flex-shrink-0" title="Active"></div>
+          <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse ml-0.5 flex-shrink-0" title="Active"></div>
         </div>
       </div>
 
-      {/* Right: Engine status & pipeline indicator — fixed width to balance layout */}
-      <div className="flex items-center gap-4 text-xs font-mono uppercase tracking-widest select-none flex-shrink-0 justify-end w-36 lg:w-auto">
-        <div className="hidden lg:flex items-center gap-2 text-slate-400 text-[10px]">
-          <Activity size={13} className="text-emerald-400 animate-pulse"/> {modelLabel}
+      {/* Right: Engine status & pipeline indicator — flex-1 to guarantee symmetric centering */}
+      <div className="flex-1 flex items-center justify-end gap-3 text-xs font-mono uppercase tracking-wider select-none min-w-0">
+        <div className="hidden xl:flex items-center gap-2 text-slate-400 text-xs font-medium truncate">
+          <Activity size={14} className="text-emerald-400 animate-pulse flex-shrink-0"/> 
+          <span className="truncate">{modelLabel}</span>
         </div>
-        <div className={`border px-3 py-1 rounded-full text-[10px] font-bold whitespace-nowrap ${currentConfig.accent} ${isLight ? 'bg-white border-slate-200' : 'bg-white/5 border-white/10'}`}>
+        <div className={`border px-3 py-1 rounded-full text-[11px] sm:text-xs font-bold whitespace-nowrap shadow-sm transition-all duration-300 ${currentConfig.accent} ${
+          isLight ? 'bg-white border-slate-200 shadow-slate-100' : 'bg-white/5 border-white/10'
+        }`}>
           {displayStatus === currentConfig.defaultStatus ? `● ${displayStatus}` : `○ ${displayStatus}`}
         </div>
       </div>

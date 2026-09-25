@@ -1,0 +1,113 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "🚀 Start Development (Full Stack)",
+      "type": "shell",
+      "command": "${workspaceFolder}/living-science-grid/start.sh",
+      "args": ["dev"],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "clear": true
+      },
+      "problemMatcher": [],
+      "runOptions": {
+        "runOn": "folderOpen"
+      }
+    },
+    {
+      "label": "🔧 Start Backend Only",
+      "type": "shell",
+      "command": "cd ${workspaceFolder}/living-science-grid/research_brain && source .venv/bin/activate && uvicorn main:app --host 0.0.0.0 --port 8000 --reload",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "🌐 Start Frontend Only",
+      "type": "shell",
+      "command": "cd ${workspaceFolder}/living-science-grid && npm run dev",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "📦 Build Production",
+      "type": "shell",
+      "command": "cd ${workspaceFolder}/living-science-grid && npm run build",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "🧪 Run Tests",
+      "type": "shell",
+      "command": "${workspaceFolder}/living-science-grid/start.sh",
+      "args": ["test"],
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "🧹 Clean All",
+      "type": "shell",
+      "command": "cd ${workspaceFolder}/living-science-grid && rm -rf dist node_modules/.vite node_modules research_brain/__pycache__ research_brain/.venv server/__pycache__ && echo 'Cleaned'",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "📦 Install Frontend Dependencies",
+      "type": "shell",
+      "command": "cd ${workspaceFolder}/living-science-grid && npm ci",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "🐍 Install Backend Dependencies",
+      "type": "shell",
+      "command": "cd ${workspaceFolder}/living-science-grid/research_brain && source .venv/bin/activate && pip install -r requirements.txt",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "🔍 Lint & Type Check",
+      "type": "shell",
+      "command": "cd ${workspaceFolder}/living-science-grid && npm run lint",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

@@ -18,6 +18,7 @@ import {
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 import { generatePaperSummary, sanitizeDocument, sanitizeKatexString } from '../aiHelper';
+import LLMResponseView, { formatLLMResponseText } from './LLMResponseView';
 
 const rehypeKatexOptions = [rehypeKatex, { strict: false, throwOnError: false }];
 
@@ -63,6 +64,12 @@ export default function InsightLens({ setStatus: setParentStatus, setCurrentView
   const [showManual, setShowManual] = useState(false);
   
   const [pdfFile, setPdfFile] = useState(null);
+  // Stable object-URL source handed to react-pdf. pdfjs-dist transfers (detaches) the
+  // ArrayBuffer of any `data` it receives, so passing the raw File/Blob to multiple
+  // <Document> instances can race into "Cannot perform Construct on a detached ArrayBuffer".
+  // A blob URL is fetched independently by pdfjs on every mount and can be shared safely.
+  const [pdfSource, setPdfSource] = useState(null);
+  const [pdfLoadError, setPdfLoadError] = useState(null);
   const [pageNumber, setPageNumber] = useState(1);
   const [scale, setScale] = useState(1.2);
   const [interactionMode, setInteractionMode] = useState('read'); 
@@ -465,6 +472,23 @@ torch = _TorchShim()
     setStatusInternal("Ready");
   };
 
+  // Maintain a stable object URL for the mounted PDF. Revoked automatically on replace/unmount.
+  useEffect(() => {
+    setPdfSource(null);
+    setPdfLoadError(null);
+    if (!pdfFile) return undefined;
+    const url = URL.createObjectURL(pdfFile);
+    setPdfSource(url);
+    return () => URL.revokeObjectURL(url);
+  }, [pdfFile]);
+
+  const resetPdfLoadError = useCallback(() => setPdfLoadError(null), []);
+
+  const handlePdfLoadError = useCallback((err) => {
+    console.warn("PDF viewport load error:", err);
+    setPdfLoadError(err?.message || "Unable to render this PDF.");
+  }, []);
+
   const executeExtractionPipeline = async (file, existingFileId = null) => {
     cancelRef.current = false;
 
@@ -487,7 +511,9 @@ torch = _TorchShim()
       let pdf = null;
       let totalPages = 1;
       try {
-        pdf = await pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer), isEvalSupported: false }).promise;
+        // Defensive copy: pdfjs transfers (detaches) the buffer it receives while talking to its
+        // worker. Never let that touch the File/Blob that the viewports still reference.
+        pdf = await pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer.slice(0)), isEvalSupported: false }).promise;
         totalPages = pdf?.numPages || 1;
       } catch (pdfErr) {
         console.warn("PDF extraction warning, using graceful fallback:", pdfErr);
@@ -760,7 +786,10 @@ torch = _TorchShim()
     } else {
       blob = new Blob([rawContent], { type: 'application/pdf' });
     }
-    return new File([blob], filename, { type: 'application/pdf' });
+    // The ingest endpoint validates on filename — make sure reconstructed documents
+    // always carry a .pdf extension so session titles like "Attention Is All You Need" aren't rejected.
+    const safeName = filename.toLowerCase().endsWith('.pdf') ? filename : `${filename.replace(/\.pdf$/i, '') || 'document'}.pdf`;
+    return new File([blob], safeName, { type: 'application/pdf' });
   };
 
   const mountPdfOnlyFromUrl = async (url, filename, targetPage = 1) => {
@@ -1129,7 +1158,8 @@ torch = _TorchShim()
         const assistantMessage = { 
           role: 'assistant', 
           content: data.response || "No response received.",
-          page: pageNumber
+          page: pageNumber,
+          citations: Array.isArray(data.citations) ? data.citations : []
         };
         const updatedHistory = [...newHistory, assistantMessage];
         setChatHistory(updatedHistory);
@@ -1576,9 +1606,9 @@ torch = _TorchShim()
                   </div>
                 )}
 
-                {leftSidebarTab === 'thumbnails' && pdfFile && (
+                {leftSidebarTab === 'thumbnails' && pdfFile && !pdfLoadError && (
                   <div className="flex flex-col items-center gap-4">
-                    <Document file={pdfFile}>
+                    <Document file={pdfSource} onLoadError={handlePdfLoadError} onLoadSuccess={resetPdfLoadError}>
                       {Array.from(new Array(paperData?.totalPages || 0), (el, index) => (
                         <div key={index} onClick={() => setPageNumber(index + 1)} className={`relative mb-2 p-1 border-2 rounded-lg cursor-pointer transition-all ${pageNumber === index + 1 ? `${themeClasses.accentBorder} bg-black/20` : 'border-transparent hover:border-white/10'}`}>
                           <span className="absolute -left-6 top-1/2 -translate-y-1/2 text-[10px] font-mono text-slate-500 font-bold">{index + 1}</span>
@@ -1739,9 +1769,28 @@ torch = _TorchShim()
                   </div>
                 </div>
               </div>
+            ) : pdfLoadError ? (
+              <div className="flex-grow flex flex-col items-center justify-center text-center p-12 max-w-lg">
+                <div className="p-8 border border-white/10 rounded-3xl bg-black/40 backdrop-blur-xl shadow-2xl flex flex-col items-center relative overflow-hidden">
+                  <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-red-500 via-amber-500 to-yellow-500"></div>
+                  <AlertCircle size={44} className="text-amber-400 mb-5" />
+                  <h3 className="text-base font-serif text-white mb-2">Unable to Render PDF Directly</h3>
+                  <p className="text-xs text-slate-400 font-light mb-5 leading-relaxed">
+                    This file could not be opened in the built-in viewer{paperData ? " — the paper was still indexed from its extracted text." : "."}
+                  </p>
+                  <div className="flex items-center gap-2 flex-wrap justify-center">
+                    <button
+                      onClick={() => { setPdfFile(null); setPdfSource(null); setPdfLoadError(null); }}
+                      className={`px-4 py-2 rounded-xl font-mono text-[10px] uppercase tracking-widest text-white transition-all shadow bg-white/5 hover:bg-white/10 border border-white/10 flex items-center gap-1.5 cursor-pointer`}
+                    >
+                      <UploadCloud size={13} /> Mount Different PDF
+                    </button>
+                  </div>
+                </div>
+              </div>
             ) : (
               <div ref={pdfWrapperRef} className="relative" onMouseDown={handleCanvasMouseDown} onMouseMove={handleCanvasMouseMove} onMouseUp={handleCanvasMouseUp} onMouseLeave={handleCanvasMouseUp}>
-                <Document file={pdfFile} className="pdf-render-canvas-viewport">
+                <Document file={pdfSource} className="pdf-render-canvas-viewport" onLoadError={handlePdfLoadError} onLoadSuccess={resetPdfLoadError}>
                   <Page pageNumber={pageNumber} scale={scale} renderTextLayer={true} renderAnnotationLayer={false} />
                 </Document>
                 <canvas ref={annotationCanvasRef} className="absolute top-0 left-0 w-full h-full z-20 mix-blend-normal" style={{ pointerEvents: interactionMode === 'read' ? 'none' : 'auto' }}/>
@@ -1756,16 +1805,16 @@ torch = _TorchShim()
         {/* RIGHT SIDEBAR */}
         {paperData && (
           <div className="relative flex h-full z-20">
-            <div className={`h-full transition-all duration-300 ease-in-out overflow-hidden border-l ${isLight ? 'border-slate-200 bg-white/70' : 'border-white/10 bg-black/40'} ${isRightOpen ? 'w-[390px]' : 'w-0'}`}>
-              <div className="w-[390px] h-full flex flex-col overflow-hidden">
-                <div className={`p-1.5 border-b flex items-center flex-shrink-0 gap-1 ${isLight ? 'border-slate-200 bg-slate-100/80' : 'border-white/10 bg-black/60'}`}>
-                  <button onClick={() => setActiveRightTab('copilot')} className={`flex-1 py-1.5 flex justify-center items-center gap-1 rounded-lg text-[9px] font-mono uppercase tracking-widest transition-all ${activeRightTab==='copilot' ? (isLight ? 'bg-white text-slate-900 font-bold shadow-sm' : 'bg-white/10 text-white font-bold shadow') : (isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-black/5' : 'text-slate-400 hover:text-white hover:bg-white/5')}`}><MessageSquare size={11} /> Chat</button>
-                  <button onClick={() => setActiveRightTab('notebook')} className={`flex-1 py-1.5 flex justify-center items-center gap-1 rounded-lg text-[9px] font-mono uppercase tracking-widest transition-all ${activeRightTab==='notebook' ? (isLight ? 'bg-white text-slate-900 font-bold shadow-sm' : 'bg-white/10 text-white font-bold shadow') : (isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-black/5' : 'text-slate-400 hover:text-white hover:bg-white/5')}`}>
-                    <BookMarked size={11} /> Notes {paperNotes.length > 0 && <span className="bg-emerald-500/20 text-emerald-400 px-1 py-0.2 rounded-full text-[8px] font-bold">{paperNotes.length}</span>}
+            <div className={`h-full transition-all duration-300 ease-in-out overflow-hidden border-l ${isLight ? 'border-slate-200 bg-white/70' : 'border-white/10 bg-black/40'} ${isRightOpen ? 'w-[420px]' : 'w-0'}`}>
+              <div className="w-[420px] h-full flex flex-col overflow-hidden">
+                <div className={`p-2 border-b flex items-center flex-shrink-0 gap-1.5 ${isLight ? 'border-slate-200 bg-slate-100/90' : 'border-white/10 bg-black/70'}`}>
+                  <button onClick={() => setActiveRightTab('copilot')} className={`flex-1 py-2 flex justify-center items-center gap-1.5 rounded-xl text-xs font-mono uppercase tracking-wider transition-all cursor-pointer ${activeRightTab==='copilot' ? (isLight ? 'bg-white text-slate-900 font-bold shadow-sm' : 'bg-white/10 text-white font-bold shadow') : (isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-black/5' : 'text-slate-400 hover:text-white hover:bg-white/5')}`}><MessageSquare size={13} /> Chat</button>
+                  <button onClick={() => setActiveRightTab('notebook')} className={`flex-1 py-2 flex justify-center items-center gap-1.5 rounded-xl text-xs font-mono uppercase tracking-wider transition-all cursor-pointer ${activeRightTab==='notebook' ? (isLight ? 'bg-white text-slate-900 font-bold shadow-sm' : 'bg-white/10 text-white font-bold shadow') : (isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-black/5' : 'text-slate-400 hover:text-white hover:bg-white/5')}`}>
+                    <BookMarked size={13} /> Notes {paperNotes.length > 0 && <span className="bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded-full text-[10px] font-bold">{paperNotes.length}</span>}
                   </button>
-                  <button onClick={() => setActiveRightTab('flashcards')} className={`flex-1 py-1.5 flex justify-center items-center gap-1 rounded-lg text-[9px] font-mono uppercase tracking-widest transition-all ${activeRightTab==='flashcards' ? (isLight ? 'bg-white text-slate-900 font-bold shadow-sm' : 'bg-white/10 text-white font-bold shadow') : (isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-black/5' : 'text-slate-400 hover:text-white hover:bg-white/5')}`}><GraduationCap size={11} /> Study</button>
-                  <button onClick={() => setActiveRightTab('code')} className={`flex-1 py-1.5 flex justify-center items-center gap-1 rounded-lg text-[9px] font-mono uppercase tracking-widest transition-all ${activeRightTab==='code' ? (isLight ? 'bg-white text-slate-900 font-bold shadow-sm' : 'bg-white/10 text-white font-bold shadow') : (isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-black/5' : 'text-slate-400 hover:text-white hover:bg-white/5')}`}><Code2 size={11} /> PyTorch</button>
-                  <button onClick={() => setActiveRightTab('audio')} className={`flex-1 py-1.5 flex justify-center items-center gap-1 rounded-lg text-[9px] font-mono uppercase tracking-widest transition-all ${activeRightTab==='audio' ? (isLight ? 'bg-white text-slate-900 font-bold shadow-sm' : 'bg-white/10 text-white font-bold shadow') : (isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-black/5' : 'text-slate-400 hover:text-white hover:bg-white/5')}`}><Volume2 size={11} /> Audio</button>
+                  <button onClick={() => setActiveRightTab('flashcards')} className={`flex-1 py-2 flex justify-center items-center gap-1.5 rounded-xl text-xs font-mono uppercase tracking-wider transition-all cursor-pointer ${activeRightTab==='flashcards' ? (isLight ? 'bg-white text-slate-900 font-bold shadow-sm' : 'bg-white/10 text-white font-bold shadow') : (isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-black/5' : 'text-slate-400 hover:text-white hover:bg-white/5')}`}><GraduationCap size={13} /> Study</button>
+                  <button onClick={() => setActiveRightTab('code')} className={`flex-1 py-2 flex justify-center items-center gap-1.5 rounded-xl text-xs font-mono uppercase tracking-wider transition-all cursor-pointer ${activeRightTab==='code' ? (isLight ? 'bg-white text-slate-900 font-bold shadow-sm' : 'bg-white/10 text-white font-bold shadow') : (isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-black/5' : 'text-slate-400 hover:text-white hover:bg-white/5')}`}><Code2 size={13} /> PyTorch</button>
+                  <button onClick={() => setActiveRightTab('audio')} className={`flex-1 py-2 flex justify-center items-center gap-1.5 rounded-xl text-xs font-mono uppercase tracking-wider transition-all cursor-pointer ${activeRightTab==='audio' ? (isLight ? 'bg-white text-slate-900 font-bold shadow-sm' : 'bg-white/10 text-white font-bold shadow') : (isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-black/5' : 'text-slate-400 hover:text-white hover:bg-white/5')}`}><Volume2 size={13} /> Audio</button>
                 </div>
 
                 <div className="flex-grow overflow-y-auto p-4 custom-scrollbar flex flex-col">
@@ -1788,17 +1837,17 @@ torch = _TorchShim()
 
                       {/* SciSpace Quick Prompt Chips */}
                       {chatHistory.length > 0 && (
-                        <div className="mb-3 pb-2 border-b border-white/5 flex items-center gap-1.5 overflow-x-auto hide-scrollbar flex-shrink-0">
-                          <button onClick={() => handleChatSubmit(null, "ELI5: Deconstruct and explain the core mechanism of this paper in simple, intuitive terms with an everyday analogy")} className="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-[9px] font-mono uppercase tracking-wider rounded-lg whitespace-nowrap border border-emerald-500/20 font-bold">
+                        <div className="mb-3.5 pb-2.5 border-b border-white/10 flex items-center gap-2 overflow-x-auto hide-scrollbar flex-shrink-0">
+                          <button onClick={() => handleChatSubmit(null, "ELI5: Deconstruct and explain the core mechanism of this paper in simple, intuitive terms with an everyday analogy")} className="px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-xs font-mono uppercase tracking-wider rounded-xl whitespace-nowrap border border-emerald-500/30 font-semibold cursor-pointer">
                             🎓 ELI5 Deconstruct
                           </button>
-                          <button onClick={() => handleChatSubmit(null, "Summarize the core novelty and empirical contributions of this paper")} className="px-2.5 py-1 bg-white/5 hover:bg-white/10 text-slate-300 text-[9px] font-mono uppercase tracking-wider rounded-lg whitespace-nowrap border border-white/5">
+                          <button onClick={() => handleChatSubmit(null, "Summarize the core novelty and empirical contributions of this paper")} className="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-mono uppercase tracking-wider rounded-xl whitespace-nowrap border border-white/10 cursor-pointer">
                             📌 Novelty & Summary
                           </button>
-                          <button onClick={() => handleChatSubmit(null, `Explain the methodology and technical architecture discussed around page ${pageNumber}`)} className="px-2.5 py-1 bg-white/5 hover:bg-white/10 text-slate-300 text-[9px] font-mono uppercase tracking-wider rounded-lg whitespace-nowrap border border-white/5">
+                          <button onClick={() => handleChatSubmit(null, `Explain the methodology and technical architecture discussed around page ${pageNumber}`)} className="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-mono uppercase tracking-wider rounded-xl whitespace-nowrap border border-white/10 cursor-pointer">
                             🔬 Methods (p.{pageNumber})
                           </button>
-                          <button onClick={() => handleChatSubmit(null, "Identify limitations, assumptions, and theoretical bottlenecks")} className="px-2.5 py-1 bg-white/5 hover:bg-white/10 text-slate-300 text-[9px] font-mono uppercase tracking-wider rounded-lg whitespace-nowrap border border-white/5">
+                          <button onClick={() => handleChatSubmit(null, "Identify limitations, assumptions, and theoretical bottlenecks")} className="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-mono uppercase tracking-wider rounded-xl whitespace-nowrap border border-white/10 cursor-pointer">
                             ⚠️ Bottlenecks
                           </button>
                         </div>
@@ -1844,22 +1893,24 @@ torch = _TorchShim()
                           ) : (
                             <div className="bg-black/50 p-3.5 rounded-xl border border-white/10 mt-1">
                               {isAiEvaluating ? (
-                                <div className={`text-[10px] font-mono tracking-widest uppercase animate-pulse flex items-center gap-2 ${themeClasses.accentText}`}>
-                                  <RefreshCw size={11} className="animate-spin"/> Evaluating Excerpt...
+                                <div className={`text-xs font-mono tracking-widest uppercase animate-pulse flex items-center gap-2 ${themeClasses.accentText}`}>
+                                  <RefreshCw size={13} className="animate-spin"/> Evaluating Excerpt...
                                 </div>
                               ) : (
                                 <>
-                                  <div className="prose prose-invert max-w-none text-xs leading-relaxed select-text space-y-1.5 [&_h3]:text-xs [&_h3]:font-bold [&_h3]:text-emerald-400 [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 [&_strong]:text-emerald-300 mb-3">
-                                    <ReactMarkdown rehypePlugins={[rehypeKatexOptions]} remarkPlugins={[remarkMath]}>
-                                      {aiResponseBuffer}
-                                    </ReactMarkdown>
-                                  </div>
+                                  <LLMResponseView
+                                    content={aiResponseBuffer}
+                                    isLight={isLight}
+                                    showFormulaInspector={true}
+                                    onSaveToNotes={() => saveInsightAsNote('Key Finding')}
+                                    className="mb-3"
+                                  />
                                   <div className="flex gap-2">
-                                    <button onClick={() => saveInsightAsNote('Key Finding')} className="flex-1 py-2 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-[10px] uppercase tracking-widest font-bold font-mono rounded-lg flex justify-center items-center gap-1.5 border border-emerald-500/30 transition-all">
-                                      <BookmarkPlus size={12} /> Pin to Notes
+                                    <button onClick={() => saveInsightAsNote('Key Finding')} className="flex-1 py-2.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-xs uppercase tracking-wider font-bold font-mono rounded-xl flex justify-center items-center gap-1.5 border border-emerald-500/30 transition-all cursor-pointer">
+                                      <BookmarkPlus size={13} /> Pin to Notes
                                     </button>
-                                    <button onClick={() => { navigator.clipboard.writeText(aiResponseBuffer); }} className="px-3 py-2 bg-white/5 hover:bg-white/10 text-slate-300 text-[10px] font-mono rounded-lg border border-white/10">
-                                      <Copy size={12}/>
+                                    <button onClick={() => { navigator.clipboard.writeText(aiResponseBuffer); }} className="px-3 py-2 bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-mono rounded-xl border border-white/10 cursor-pointer">
+                                      <Copy size={13}/>
                                     </button>
                                   </div>
                                 </>
@@ -1870,56 +1921,41 @@ torch = _TorchShim()
                       )}
 
                       {/* Chat Messages */}
-                      <div className="flex-grow space-y-3">
+                      <div className="flex-grow space-y-3.5">
                         {chatHistory.map((msg, i) => (
-                          <div key={i} className={`p-4 rounded-2xl border ${msg.role === 'user' ? (isLight ? 'bg-slate-100 border-slate-200 ml-3' : 'bg-black/30 border-white/10 ml-3') : (isLight ? 'bg-white border-slate-200 mr-2 shadow-sm' : 'bg-black/10 border-white/10 mr-2 shadow-sm')}`}>
-                            <div className="text-[9px] font-mono uppercase tracking-widest mb-1.5 flex items-center justify-between opacity-60">
-                              <span>{msg.role === 'user' ? 'You' : 'InsightLens Copilot'}</span>
+                          <div key={i} className={`p-4 rounded-2xl border transition-all ${msg.role === 'user' ? (isLight ? 'bg-slate-100 border-slate-200 ml-4' : 'bg-white/[0.04] border-white/10 ml-4') : (isLight ? 'bg-white border-slate-200 mr-2 shadow-sm' : 'bg-black/30 border-white/10 mr-2 shadow-md')}`}>
+                            <div className="text-xs font-mono font-semibold uppercase tracking-wider mb-2 flex items-center justify-between text-slate-400">
+                              <span className="flex items-center gap-1.5 text-cyan-400">
+                                {msg.role === 'user' ? 'You' : <><Sparkles size={13} className="text-cyan-400" /> InsightLens Copilot</>}
+                              </span>
                               {msg.role !== 'user' && (
-                                <div className="flex items-center gap-2">
-                                  <button
-                                    onClick={() => {
-                                      handleAddNote({
-                                        title: `Copilot Insight (p. ${msg.page || pageNumber})`,
-                                        category: 'AI Insight',
-                                        page: msg.page || pageNumber,
-                                        insight: msg.content,
-                                        text: 'Pinned from Copilot discussion.'
-                                      });
-                                      setActiveRightTab('notebook');
-                                    }}
-                                    className="hover:text-emerald-400 flex items-center gap-1 text-[9px] font-mono normal-case"
-                                    title="Pin to Notes"
-                                  >
-                                    <BookmarkPlus size={11} /> Save to Notes
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      navigator.clipboard.writeText(msg.content);
-                                      setCopiedChatIdx(i);
-                                      setTimeout(() => setCopiedChatIdx(null), 2000);
-                                    }}
-                                    className="hover:text-emerald-400 flex items-center gap-1 text-[9px] font-mono normal-case"
-                                    title="Copy response"
-                                  >
-                                    {copiedChatIdx === i ? <Check size={11} className="text-emerald-400"/> : <Copy size={11}/>}
-                                  </button>
-                                </div>
+                                <span className="text-[11px] font-mono text-slate-500">Page {msg.page || pageNumber}</span>
                               )}
                             </div>
-                            {msg.image && <img src={`data:image/jpeg;base64,${msg.image}`} alt="Attachment" className="w-full rounded-lg mb-2.5 border border-white/10 shadow-md max-h-48 object-contain"/>}
+                            {msg.image && <img src={`data:image/jpeg;base64,${msg.image}`} alt="Attachment" className="w-full rounded-xl mb-3 border border-white/10 shadow-md max-h-56 object-contain"/>}
                             {msg.role === 'user' ? (
-                              <p className={`text-xs font-light whitespace-pre-wrap leading-relaxed select-text ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>{msg.content}</p>
+                              <p className={`text-sm font-normal whitespace-pre-wrap leading-relaxed select-text ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>{msg.content}</p>
                             ) : (
-                              <div className={`prose ${isLight ? 'prose-slate text-slate-800' : 'prose-invert text-slate-200'} max-w-none text-xs leading-relaxed select-text [&_h3]:text-xs [&_h3]:font-bold [&_h3]:font-mono [&_h3]:text-emerald-500 [&_h3]:mb-2 [&_h3]:mt-2 [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 [&_li]:mb-1 [&_strong]:text-emerald-400 [&_p]:mb-2`}>
-                                <ReactMarkdown rehypePlugins={[rehypeKatexOptions]} remarkPlugins={[remarkMath]}>
-                                  {msg.content}
-                                </ReactMarkdown>
-                              </div>
+                              <LLMResponseView
+                                content={msg.content}
+                                citations={msg.citations}
+                                page={msg.page || pageNumber}
+                                isLight={isLight}
+                                onSaveToNotes={() => {
+                                  handleAddNote({
+                                    title: `Copilot Insight (p. ${msg.page || pageNumber})`,
+                                    category: 'AI Insight',
+                                    page: msg.page || pageNumber,
+                                    insight: msg.content,
+                                    text: 'Pinned from Copilot discussion.'
+                                  });
+                                  setActiveRightTab('notebook');
+                                }}
+                              />
                             )}
                           </div>
                         ))}
-                        {isAgentTyping && <div className={`text-[10px] font-mono animate-pulse ml-1 flex items-center gap-2 ${themeClasses.accentText}`}><RefreshCw size={11} className="animate-spin"/> Evaluating multi-page context...</div>}
+                        {isAgentTyping && <div className={`text-xs font-mono font-medium animate-pulse ml-1 py-1 flex items-center gap-2 ${themeClasses.accentText}`}><RefreshCw size={13} className="animate-spin"/> Evaluating multi-page scholarly context...</div>}
                       </div>
                     </>
                   )}
@@ -2189,28 +2225,28 @@ torch = _TorchShim()
 
                                   {/* AI Insight */}
                                   {note.insight && (
-                                    <div className={`text-[11px] mt-2 border p-2.5 rounded-xl select-text ${isLight ? 'bg-purple-50/80 border-purple-200 text-slate-800' : 'bg-purple-950/20 border-purple-500/20 text-slate-300'}`}>
-                                      <div className="text-[9px] font-mono text-purple-500 uppercase tracking-wider mb-1 flex items-center gap-1 font-bold">
-                                        <Sparkles size={10}/> AI Synthesis
+                                    <div className={`mt-2.5 border p-3 rounded-xl select-text ${isLight ? 'bg-purple-50/80 border-purple-200 text-slate-800' : 'bg-purple-950/20 border-purple-500/20 text-slate-200'}`}>
+                                      <div className="text-xs font-mono text-purple-400 uppercase tracking-wider mb-1.5 flex items-center gap-1.5 font-bold">
+                                        <Sparkles size={12}/> AI Synthesis
                                       </div>
-                                      <div className={`prose ${isLight ? 'prose-slate text-slate-800' : 'prose-invert'} max-w-none text-[11px] leading-relaxed`}>
-                                        <ReactMarkdown rehypePlugins={[rehypeKatexOptions]} remarkPlugins={[remarkMath]}>
-                                          {note.insight}
-                                        </ReactMarkdown>
-                                      </div>
+                                      <LLMResponseView
+                                        content={note.insight}
+                                        isLight={isLight}
+                                        showFormulaInspector={false}
+                                      />
                                     </div>
                                   )}
 
                                   {/* User Text */}
                                   {note.text && (
-                                    <div className={`text-xs font-light mt-2 leading-relaxed select-text ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
+                                    <div className={`text-sm font-normal mt-2 leading-relaxed select-text ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
                                       <ReactMarkdown rehypePlugins={[rehypeKatexOptions]} remarkPlugins={[remarkMath]}>
-                                        {note.text}
+                                        {formatLLMResponseText(note.text)}
                                       </ReactMarkdown>
                                     </div>
                                   )}
 
-                                  <div className="text-[8px] font-mono text-slate-600 mt-2 text-right">
+                                  <div className="text-[10px] font-mono text-slate-500 mt-2 text-right">
                                     {note.createdAt ? note.createdAt.substring(0, 10) : 'Saved'}
                                   </div>
                                 </div>
@@ -2695,20 +2731,20 @@ torch = _TorchShim()
 
                 {/* Copilot Chat Input Form */}
                 {activeRightTab === 'copilot' && (
-                  <div className={`p-3 border-t flex-shrink-0 ${isLight ? 'border-slate-200 bg-white/50' : 'border-white/10 bg-black/40'}`}>
+                  <div className={`p-3.5 border-t flex-shrink-0 ${isLight ? 'border-slate-200 bg-white/70' : 'border-white/10 bg-black/50'}`}>
                     <form onSubmit={handleChatSubmit} className="flex flex-col gap-2">
-                      <div className="flex items-center bg-black/20 border border-white/10 rounded-xl p-1 focus-within:border-white/30 transition-colors shadow-inner">
-                        <Search size={14} className="text-slate-600 ml-2.5 shrink-0" />
+                      <div className="flex items-center bg-black/25 border border-white/15 rounded-2xl p-1.5 focus-within:border-cyan-400/60 transition-all shadow-inner">
+                        <Search size={16} className="text-slate-500 ml-3 shrink-0" />
                         <input 
                           type="text" 
                           value={chatInput} 
                           onChange={(e) => setChatInput(e.target.value)} 
                           placeholder={activeSelectionText ? "Ask about targeted excerpt..." : "Ask document questions (cites exact pages)..."}
-                          className="flex-grow bg-transparent text-xs text-white px-3 py-2 outline-none font-sans" 
+                          className={`flex-grow bg-transparent text-sm px-3 py-2 outline-none font-sans ${isLight ? 'text-slate-900 placeholder:text-slate-400' : 'text-white placeholder:text-slate-500'}`} 
                           disabled={isAgentTyping}
                         />
-                        <button type="submit" disabled={!chatInput.trim()} className={`p-2 rounded-lg text-white transition-all disabled:opacity-20 ${themeClasses.accentBg}`}>
-                          <Send size={12} />
+                        <button type="submit" disabled={!chatInput.trim()} className={`p-2.5 rounded-xl text-white transition-all disabled:opacity-20 cursor-pointer shadow-md ${themeClasses.accentBg}`}>
+                          <Send size={15} />
                         </button>
                       </div>
                     </form>

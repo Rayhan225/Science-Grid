@@ -100,7 +100,7 @@ def chunk_manuscript(
 
     for page_key in sorted_page_keys:
         page_num = int(page_key) if str(page_key).isdigit() else 1
-        page_text = pages[page_key] or ""
+        page_text = (pages[page_key] or "").replace("\x00", "")
         sec_title = sec_by_page.get(page_num, f"Page {page_num}")
 
         paragraphs = [p.strip() for p in page_text.split("\n\n") if p.strip()]

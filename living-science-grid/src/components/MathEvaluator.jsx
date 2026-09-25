@@ -19,6 +19,7 @@ import * as pdfjsLib from 'pdfjs-dist';
 import * as math from 'mathjs';
 import { generatePaperSummary, extractRawEquations, analyzeSingleEquation, sanitizeDocument, sanitizeKatexString } from '../aiHelper';
 import { useTheme } from '../context/ThemeContext';
+import LLMResponseView from './LLMResponseView';
 
 const rehypeKatexOptions = [rehypeKatex, { strict: false, throwOnError: false }];
 
@@ -302,11 +303,11 @@ export default function MathEvaluator({ telemetry: externalTelemetry, setTelemet
   const textareaRef = useRef(null);
   const workerRef = useRef(null);
   const cancelRef = useRef(false);
-  const stateRef = useRef({ activeEqId, paperData, sliderValues });
+  const stateRef = useRef({ activeEqId, paperData, sliderValues, outputLogs, chartData });
 
   useEffect(() => {
-    stateRef.current = { activeEqId, paperData, sliderValues };
-  }, [activeEqId, paperData, sliderValues]);
+    stateRef.current = { activeEqId, paperData, sliderValues, outputLogs, chartData };
+  }, [activeEqId, paperData, sliderValues, outputLogs, chartData]);
 
   // ==========================================
   // DATABASE PERSISTENCE & FETCHING
@@ -415,26 +416,27 @@ export default function MathEvaluator({ telemetry: externalTelemetry, setTelemet
 
         if (event.data.type === "RESULT") {
           const resultText = event.data.payload.stdout || String(event.data.payload || "");
-          setOutputLogs(prev => {
-            const updatedLogs = { ...prev, [currentActiveId]: resultText };
-            const numbers = resultText.match(/-?\d+(\.\d+)?/g);
-            if (numbers && currentPaperData) {
-              const resultValue = Number(numbers[numbers.length - 1]);
-              const eq = currentPaperData.equations?.find(e => e.id === currentActiveId);
-              if (eq?.variables?.length > 0) {
-                const xAxisVar = eq.variables[0].symbol;
-                const xValue = currentSliderVals[currentActiveId]?.[xAxisVar] ?? eq.variables[0].default;
-                setChartData(prevCharts => {
-                  const eqData = prevCharts[currentActiveId] || [];
-                  const newData = [...eqData.filter(p => p.x !== xValue), { x: xValue, true_y: resultValue }];
-                  const updatedChart = { ...prevCharts, [currentActiveId]: newData.sort((a, b) => a.x - b.x) };
-                  saveWorkspaceToDB(currentPaperData, currentSliderVals, updatedLogs, updatedChart);
-                  return updatedChart;
-                });
-              }
+          const prevLogs = stateRef.current.outputLogs || {};
+          const updatedLogs = { ...prevLogs, [currentActiveId]: resultText };
+          setOutputLogs(updatedLogs);
+
+          let updatedChart = stateRef.current.chartData || {};
+          const numbers = resultText.match(/-?\d+(\.\d+)?/g);
+          if (numbers && currentPaperData) {
+            const resultValue = Number(numbers[numbers.length - 1]);
+            const eq = currentPaperData.equations?.find(e => e.id === currentActiveId);
+            if (eq?.variables?.length > 0) {
+              const xAxisVar = eq.variables[0].symbol;
+              const xValue = currentSliderVals[currentActiveId]?.[xAxisVar] ?? eq.variables[0].default;
+              const eqData = updatedChart[currentActiveId] || [];
+              const newData = [...eqData.filter(p => p.x !== xValue), { x: xValue, true_y: resultValue }];
+              updatedChart = { ...updatedChart, [currentActiveId]: newData.sort((a, b) => a.x - b.x) };
+              setChartData(updatedChart);
             }
-            return updatedLogs;
-          });
+          }
+          // Persist once via the resolved ref state (updaters stay pure —
+          // StrictMode double-invokes them, which would double-save).
+          saveWorkspaceToDB(currentPaperData, currentSliderVals, updatedLogs, updatedChart);
           setIsSimulating(false);
         }
         if (event.data.type === "ERROR") {
@@ -704,13 +706,14 @@ export default function MathEvaluator({ telemetry: externalTelemetry, setTelemet
           setOutputLogs(prev => ({ ...prev, [task.id]: detailedReview.defaultOutput }));
         }
 
-        setPaperData(prev => {
-          if (!prev) return prev;
-          const updatedEquations = prev.equations.map(eq => eq.id === task.id ? { ...eq, ...detailedReview, status: 'complete' } : eq);
-          const updatedSession = { ...prev, equations: updatedEquations };
-          saveWorkspaceToDB(updatedSession, currentSlidersAccum, currentLogsAccum, currentChartsAccum);
-          return updatedSession;
-        });
+        // Merge the completed review into the local session accumulator, commit
+        // it, then persist once. (No side effects inside a React updater:
+        // StrictMode double-invokes them, which would double-save.)
+        const updatedEquations = activeSession.equations.map(eq =>
+          eq.id === task.id ? { ...eq, ...detailedReview, status: 'complete' } : eq);
+        activeSession = { ...activeSession, equations: updatedEquations };
+        setPaperData(activeSession);
+        saveWorkspaceToDB(activeSession, currentSlidersAccum, currentLogsAccum, currentChartsAccum);
 
         setInternalTelemetry(prev => ({ ...prev, validatedNodes: prev.validatedNodes + 1 }));
       }
@@ -766,21 +769,23 @@ export default function MathEvaluator({ telemetry: externalTelemetry, setTelemet
       setOutputLogs(prev => ({ ...prev, [newEqId]: review.defaultOutput }));
     }
 
-    setPaperData(prev => {
-      const updated = prev ? { ...prev, equations: [...(prev.equations || []), newEq] } : {
-        id: `math_session_${Date.now()}`,
-        title: eqTitle,
-        timestamp: new Date().toLocaleDateString(),
-        equations: [newEq]
-      };
-      saveWorkspaceToDB(
-        updated, 
-        { ...sliderValues, [newEqId]: initialSliders }, 
-        { ...outputLogs, [newEqId]: review.defaultOutput || "Computed Output: 1.0" }, 
-        { ...chartData, [newEqId]: review.chartData || [] }
-      );
-      return updated;
-    });
+    // Commit once and persist once (no side effects inside React updaters —
+    // StrictMode double-invokes them, which would double-save).
+    const updatedSessionForSave = paperData
+      ? { ...paperData, equations: [...(paperData.equations || []), newEq] }
+      : {
+          id: `math_session_${Date.now()}`,
+          title: eqTitle,
+          timestamp: new Date().toLocaleDateString(),
+          equations: [newEq]
+        };
+    setPaperData(updatedSessionForSave);
+    saveWorkspaceToDB(
+      updatedSessionForSave,
+      { ...sliderValues, [newEqId]: initialSliders },
+      { ...outputLogs, [newEqId]: review.defaultOutput || "Computed Output: 1.0" },
+      { ...chartData, [newEqId]: review.chartData || [] }
+    );
 
     setActiveEqId(newEqId);
     setInternalStatus("Node Ready");
@@ -1561,46 +1566,46 @@ export default function MathEvaluator({ telemetry: externalTelemetry, setTelemet
                               {openSections.concept ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
                             </button>
                             {openSections.concept && (
-                              <div className="p-4 prose prose-invert prose-slate max-w-none font-light animate-fadeIn text-xs">
+                              <div className="p-4 animate-fadeIn text-sm">
                                 <div className="mb-3 pb-3 border-b border-white/5 select-none">
-                                  <h4 className="text-[10px] font-mono text-cyan-400 tracking-widest uppercase mb-1 flex items-center gap-1.5"><BookOpen size={11}/> Executive Context</h4>
-                                  <p className="text-[11px] text-slate-400 italic leading-relaxed font-serif">{paperData.paperSummary || "Algorithmic synthesis mapped."}</p>
+                                  <h4 className="text-xs font-mono text-cyan-400 tracking-wider uppercase mb-1.5 flex items-center gap-1.5 font-bold"><BookOpen size={13}/> Executive Context</h4>
+                                  <p className="text-xs sm:text-sm text-slate-300 italic leading-relaxed font-serif">{paperData.paperSummary || "Algorithmic synthesis mapped."}</p>
                                 </div>
-                                <h4 className="text-[10px] font-mono text-slate-500 tracking-widest uppercase mb-1.5 select-none">Functional Definition</h4>
-                                <ReactMarkdown rehypePlugins={[rehypeKatexOptions]} remarkPlugins={[remarkMath]}>{String(currentEq.concept || "Mathematical parameters isolated.")}</ReactMarkdown>
+                                <h4 className="text-xs font-mono text-slate-400 tracking-wider uppercase mb-2 select-none font-semibold">Functional Definition</h4>
+                                <LLMResponseView content={String(currentEq.concept || "Mathematical parameters isolated.")} isLight={false} showFormulaInspector={true} />
                               </div>
                             )}
                           </div>
 
                           <div className={`rounded-2xl border overflow-hidden shadow-lg ${themeClasses.bgCard}`}>
-                            <button onClick={() => toggleSection('review')} className="w-full flex items-center justify-between px-4 py-3 bg-amber-500/5 hover:bg-amber-500/10 text-amber-400 transition-colors border-b border-white/5">
-                              <span className="flex items-center gap-2 text-xs font-mono uppercase tracking-widest font-bold">
-                                <AlertTriangle size={14}/> Critical Review & Sensitivity
+                            <button onClick={() => toggleSection('review')} className="w-full flex items-center justify-between px-4 py-3 bg-amber-500/5 hover:bg-amber-500/10 text-amber-400 transition-colors border-b border-white/5 cursor-pointer">
+                              <span className="flex items-center gap-2 text-sm font-mono uppercase tracking-wider font-bold">
+                                <AlertTriangle size={15}/> Critical Review & Sensitivity
                               </span>
-                              {openSections.review ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
+                              {openSections.review ? <ChevronUp size={15}/> : <ChevronDown size={15}/>}
                             </button>
                             {openSections.review && (
-                              <div className="p-4 prose prose-invert prose-slate max-w-none font-light animate-fadeIn text-xs">
+                              <div className="p-4 animate-fadeIn text-sm">
                                 {currentEq.rating && (
-                                  <div className="mb-3 inline-flex px-2.5 py-0.5 rounded-full text-[9px] font-mono font-bold uppercase tracking-widest border bg-amber-500/10 text-amber-400 border-amber-500/30">
+                                  <div className="mb-3 inline-flex px-3 py-1 rounded-full text-xs font-mono font-bold uppercase tracking-wider border bg-amber-500/10 text-amber-400 border-amber-500/30">
                                     Metric Rating: {currentEq.rating}
                                   </div>
                                 )}
-                                <ReactMarkdown rehypePlugins={[rehypeKatexOptions]} remarkPlugins={[remarkMath]}>{String(currentEq.critique || "Standard boundary parameters observed.")}</ReactMarkdown>
+                                <LLMResponseView content={String(currentEq.critique || "Standard boundary parameters observed.")} isLight={false} showFormulaInspector={true} />
                               </div>
                             )}
                           </div>
 
                           <div className={`rounded-2xl border overflow-hidden shadow-lg ${themeClasses.bgCard}`}>
-                            <button onClick={() => toggleSection('options')} className="w-full flex items-center justify-between px-4 py-3 bg-emerald-500/5 hover:bg-emerald-500/10 text-emerald-400 transition-colors border-b border-white/5">
-                              <span className="flex items-center gap-2 text-xs font-mono uppercase tracking-widest font-bold">
-                                <Lightbulb size={14}/> Alternative Variants
+                            <button onClick={() => toggleSection('options')} className="w-full flex items-center justify-between px-4 py-3 bg-emerald-500/5 hover:bg-emerald-500/10 text-emerald-400 transition-colors border-b border-white/5 cursor-pointer">
+                              <span className="flex items-center gap-2 text-sm font-mono uppercase tracking-wider font-bold">
+                                <Lightbulb size={15}/> Alternative Variants
                               </span>
-                              {openSections.options ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
+                              {openSections.options ? <ChevronUp size={15}/> : <ChevronDown size={15}/>}
                             </button>
                             {openSections.options && (
-                              <div className="p-4 prose prose-invert prose-slate max-w-none font-light animate-fadeIn text-xs">
-                                <ReactMarkdown rehypePlugins={[rehypeKatexOptions]} remarkPlugins={[remarkMath]}>{String(currentEq.alternatives || "Standard formulations verified.")}</ReactMarkdown>
+                              <div className="p-4 animate-fadeIn text-sm">
+                                <LLMResponseView content={String(currentEq.alternatives || "Standard formulations verified.")} isLight={false} showFormulaInspector={true} />
                               </div>
                             )}
                           </div>

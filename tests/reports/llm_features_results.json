@@ -1,0 +1,423 @@
+{
+  "suite": "LLM Features Testing",
+  "generated": "2026-09-24 03:47:37",
+  "passed": 59,
+  "failed": 0,
+  "warned": 0,
+  "total": 59,
+  "cases": [
+    {
+      "id": "LLM Features Testing-001",
+      "section": "General",
+      "name": "Register fresh @test.local account for LLM suite",
+      "status": "PASS",
+      "detail": "HTTP 200 uid=usr_1790199460693"
+    },
+    {
+      "id": "LLM Features Testing-002",
+      "section": "1. LLM Engine Health & Warmup",
+      "name": "GET /health reports status=online",
+      "status": "PASS",
+      "detail": "HTTP 200 online"
+    },
+    {
+      "id": "LLM Features Testing-003",
+      "section": "2. Swarm Chat & Deterministic Reasoning",
+      "name": "Swarm chat answers derivative question meaningfully",
+      "status": "PASS",
+      "detail": "16s reply=\"To find the derivative of x^2 with respect to x, we'll apply the power rule of differentiation.\\n\\nThe power rule states t\""
+    },
+    {
+      "id": "LLM Features Testing-004",
+      "section": "2. Swarm Chat & Deterministic Reasoning",
+      "name": "Swarm response surfaces the correct derivative (2x)",
+      "status": "PASS",
+      "detail": "reply=\"To find the derivative of x^2 with respect to x, we'll apply the power rule of differentiation.\\n\\nThe power rule states t\""
+    },
+    {
+      "id": "LLM Features Testing-005",
+      "section": "2. Swarm Chat & Deterministic Reasoning",
+      "name": "Chat fast-path returns exact physical constant (299,792,458 m/s)",
+      "status": "PASS",
+      "detail": "0s reply='The speed of light in vacuum is approximately 299,792,458 meters per second.'"
+    },
+    {
+      "id": "LLM Features Testing-006",
+      "section": "2. Swarm Chat & Deterministic Reasoning",
+      "name": "Chat yields a substantive physics answer containing 'Hamiltonian'",
+      "status": "PASS",
+      "detail": "75s len=2846 reply='The Hamiltonian is a fundamental concept in quantum mechanics, playing a crucial role in the formulation of th'"
+    },
+    {
+      "id": "LLM Features Testing-007",
+      "section": "2. Swarm Chat & Deterministic Reasoning",
+      "name": "Chat response includes citations key (RAG shape)",
+      "status": "PASS",
+      "detail": "keys=['status', 'response', 'reply', 'citations', 'model']"
+    },
+    {
+      "id": "LLM Features Testing-008",
+      "section": "3. Academic Translation Engine",
+      "name": "Translate endpoints returns non-empty Bengali text",
+      "status": "PASS",
+      "detail": "18s len=126 bengali_chars=107 sample='\u0986\u09ae\u09b0\u09be \u098f\u0995\u099f\u09bf \u09b8\u09cd\u0995\u09c7\u09b2\u09c7\u09ac\u09b2 \u0985\u09cd\u09af\u09be\u099f\u09c7\u09a8\u09b6\u09a8 \u09aa\u09cd\u09b0\u0995\u09cd\u09b0\u09bf\u09af\u09bc\u09be \u09aa\u09cd\u09b0\u09b8\u09cd\u09a4\u09be\u09ac \u0995\u09b0\u09bf \u09af\u09be \u09ac\u09b0\u09cd\u0997\u09be\u0995\u09be\u09b0 \u099c\u099f\u09bf\u09b2\u09a4\u09be \u09a5\u09c7\u0995\u09c7 \u09b2\u09be\u0987'"
+    },
+    {
+      "id": "LLM Features Testing-009",
+      "section": "3. Academic Translation Engine",
+      "name": "Translation is genuinely Bengali script (contains Bengali glyphs)",
+      "status": "PASS",
+      "detail": "bengali_chars=107"
+    },
+    {
+      "id": "LLM Features Testing-010",
+      "section": "4. Math AST Parsing",
+      "name": "math-ast returns structured AST tree",
+      "status": "PASS",
+      "detail": "62s ast_keys=['type', 'operator', 'variables', 'constants', 'tree']"
+    },
+    {
+      "id": "LLM Features Testing-011",
+      "section": "4. Math AST Parsing",
+      "name": "math-ast extracts variable list & Rust signature",
+      "status": "PASS",
+      "detail": "vars=['Q', 'K', 'V'] sig=pub fn evaluate_ast(Q: f64, K: f64, V: f64) -> Result<f64, MathError>"
+    },
+    {
+      "id": "LLM Features Testing-012",
+      "section": "5. Math Equation Extraction",
+      "name": "math-extract harvests candidate equations from manuscript text",
+      "status": "PASS",
+      "detail": "0s found=2 pages=1"
+    },
+    {
+      "id": "LLM Features Testing-013",
+      "section": "5. Math Equation Extraction",
+      "name": "Extracted equations carry latex + name + page",
+      "status": "PASS",
+      "detail": "sample={\"name\": \"Class Probability Distribution (Softmax)\", \"latex\": \"$$ P(y = c \\\\mid x) = \\\\frac{\\\\exp(z_c)}{\\\\sum_{j=1}^C \\\\"
+    },
+    {
+      "id": "LLM Features Testing-014",
+      "section": "6. Deep Math Analysis (robust_llm_json + grammar)",
+      "name": "math-analyze: full analysis object returned (HTTP success)",
+      "status": "PASS",
+      "detail": "109s keys=['status', 'evalId', 'name', 'latex', 'concept', 'rating', 'critique', 'alternatives', 'variables', 'pythonCode', 'chartData', 'defaultOutput', 'logicMap']"
+    },
+    {
+      "id": "LLM Features Testing-015",
+      "section": "6. Deep Math Analysis (robust_llm_json + grammar)",
+      "name": "math-analyze: concept is REAL LLM prose (not heuristic fallback)",
+      "status": "PASS",
+      "detail": "concept='The sigmoid activation function is a continuous, differentiable, and monotonic increasing function over its domain. It has been wi'"
+    },
+    {
+      "id": "LLM Features Testing-016",
+      "section": "6. Deep Math Analysis (robust_llm_json + grammar)",
+      "name": "math-analyze: rating is a rigorous grade string",
+      "status": "PASS",
+      "detail": "rating='A (Information-Theoretic Standard )'"
+    },
+    {
+      "id": "LLM Features Testing-017",
+      "section": "6. Deep Math Analysis (robust_llm_json + grammar)",
+      "name": "math-analyze: critique reasoning is substantive",
+      "status": "PASS",
+      "detail": "critique='The sigmoid function exhibits vanishing gradients during backpropagation for large negative input values, whic'"
+    },
+    {
+      "id": "LLM Features Testing-018",
+      "section": "6. Deep Math Analysis (robust_llm_json + grammar)",
+      "name": "math-analyze: alternatives enumerated",
+      "status": "PASS",
+      "detail": "alternatives='Several alternative activation functions have been proposed to address the vanishing gradient problem, includi'"
+    },
+    {
+      "id": "LLM Features Testing-019",
+      "section": "6. Deep Math Analysis (robust_llm_json + grammar)",
+      "name": "math-analyze: interactive variables produced",
+      "status": "PASS",
+      "detail": "vars=['x', 'y', 'learning']"
+    },
+    {
+      "id": "LLM Features Testing-020",
+      "section": "6. Deep Math Analysis (robust_llm_json + grammar)",
+      "name": "math-analyze: executable python_code synthesized (def evaluate + print)",
+      "status": "PASS",
+      "detail": "code_head=\"import numpy as np\\ndef evaluate(variables):    x = variables['x']    y = 1 / (1 \""
+    },
+    {
+      "id": "LLM Features Testing-021",
+      "section": "6. Deep Math Analysis (robust_llm_json + grammar)",
+      "name": "math-analyze: 50-point trajectory curve computed",
+      "status": "PASS",
+      "detail": "points=51"
+    },
+    {
+      "id": "LLM Features Testing-022",
+      "section": "6. Deep Math Analysis (robust_llm_json + grammar)",
+      "name": "math-analyze: ReactFlow DAG logic map present",
+      "status": "PASS",
+      "detail": "nodes=3"
+    },
+    {
+      "id": "LLM Features Testing-023",
+      "section": "6. Deep Math Analysis (robust_llm_json + grammar)",
+      "name": "math-analyze: single-pass grammar generation is FAST (<240s warm/cold)",
+      "status": "PASS",
+      "detail": "109s (pre-fix ~224s with 3 retries)"
+    },
+    {
+      "id": "LLM Features Testing-024",
+      "section": "7. Rigor Audit & Persistence",
+      "name": "rigor-audit returns numeric rigor_score",
+      "status": "PASS",
+      "detail": "17s rigor_score=43.5"
+    },
+    {
+      "id": "LLM Features Testing-025",
+      "section": "7. Rigor Audit & Persistence",
+      "name": "rigor-audit returns verification_passed boolean",
+      "status": "PASS",
+      "detail": "verification_passed=False"
+    },
+    {
+      "id": "LLM Features Testing-026",
+      "section": "7. Rigor Audit & Persistence",
+      "name": "rigor-audit returns 5 dimensional scores",
+      "status": "PASS",
+      "detail": "dims=['empirical_rigor', 'mathematical_soundness', 'boundary_safety', 'reproducibility', 'claim_alignment']"
+    },
+    {
+      "id": "LLM Features Testing-027",
+      "section": "7. Rigor Audit & Persistence",
+      "name": "rigor-audit review_summary is real LLM critique (not placeholder)",
+      "status": "PASS",
+      "detail": "summary=\"Manuscript 'A Claim-Dense Manuscript Without Ablations' presents a coherent, methodological contribution evaluated at co\""
+    },
+    {
+      "id": "LLM Features Testing-028",
+      "section": "7. Rigor Audit & Persistence",
+      "name": "rigor-audit flags carry actionable recommendations",
+      "status": "PASS",
+      "detail": "flags=4"
+    },
+    {
+      "id": "LLM Features Testing-029",
+      "section": "7. Rigor Audit & Persistence",
+      "name": "rigor-audit persisted to audit_ledger (DB)",
+      "status": "PASS",
+      "detail": "rows=1"
+    },
+    {
+      "id": "LLM Features Testing-030",
+      "section": "8. Plagiarism Detection",
+      "name": "plagiarism-check returns originality + overlap metrics",
+      "status": "PASS",
+      "detail": "1s orig=5.0 overlap=95.0 sources=4"
+    },
+    {
+      "id": "LLM Features Testing-031",
+      "section": "8. Plagiarism Detection",
+      "name": "plagiarism-check returns flagged segments properly shaped",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "LLM Features Testing-032",
+      "section": "9. AI Writing-Pattern Detection",
+      "name": "ai-patterns-check returns probabilities + verdict",
+      "status": "PASS",
+      "detail": "10s human=59.6 ai=40.4 verdict='Hybrid / AI-Assisted (Localized Formulaic Phrasing)'"
+    },
+    {
+      "id": "LLM Features Testing-033",
+      "section": "9. AI Writing-Pattern Detection",
+      "name": "ai-patterns-check flags the hallmark clich\u00e9s in fixture",
+      "status": "PASS",
+      "detail": "flagged=5"
+    },
+    {
+      "id": "LLM Features Testing-034",
+      "section": "10. Terminology & Notation Guard",
+      "name": "terminology-guard returns issues list",
+      "status": "PASS",
+      "detail": "0s issue_count=1"
+    },
+    {
+      "id": "LLM Features Testing-035",
+      "section": "10. Terminology & Notation Guard",
+      "name": "terminology-guard flags unit inconsistency (23 ms vs 12 s)",
+      "status": "PASS",
+      "detail": "types=['unit_inconsistency']"
+    },
+    {
+      "id": "LLM Features Testing-036",
+      "section": "10. Terminology & Notation Guard",
+      "name": "terminology-guard issues carry anchors + recommendations",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "LLM Features Testing-037",
+      "section": "11. Flashcard Synthesis & Persistence",
+      "name": "flashcards/generate synthesizes cards (not empty fallback)",
+      "status": "PASS",
+      "detail": "75s cards=4 concept0='Layer Normalization'"
+    },
+    {
+      "id": "LLM Features Testing-038",
+      "section": "11. Flashcard Synthesis & Persistence",
+      "name": "flashcards carry concept + definition + formula",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "LLM Features Testing-039",
+      "section": "11. Flashcard Synthesis & Persistence",
+      "name": "flashcard formulas are LaTeX-styled when present",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "LLM Features Testing-040",
+      "section": "11. Flashcard Synthesis & Persistence",
+      "name": "flashcards persisted to student_flashcards (DB)",
+      "status": "PASS",
+      "detail": "rows=4"
+    },
+    {
+      "id": "LLM Features Testing-041",
+      "section": "12. PyTorch Code Synthesis & Persistence",
+      "name": "code/implementations/extract returns an implementation object",
+      "status": "PASS",
+      "detail": "58s impl=ScaledDotProductAttentionForwardLayerNormLayerMultiHeadAttentionLayerLinearLayer"
+    },
+    {
+      "id": "LLM Features Testing-042",
+      "section": "12. PyTorch Code Synthesis & Persistence",
+      "name": "Generated code is real runnable PyTorch (imports + class)",
+      "status": "PASS",
+      "detail": "code_head='import torch\\nimport torch.nn as nn\\nclass ScaledDotProductAttention(nn.Module):    def __in'"
+    },
+    {
+      "id": "LLM Features Testing-043",
+      "section": "12. PyTorch Code Synthesis & Persistence",
+      "name": "Implementation carries algorithm_name + Big-O complexity",
+      "status": "PASS",
+      "detail": "name=ScaledDotProductAttentionForwardLayerNormLayerMultiHeadAttentionLayerLinearLayer complexity=O(N * d^2 / sqrt(d_k))"
+    },
+    {
+      "id": "LLM Features Testing-044",
+      "section": "12. PyTorch Code Synthesis & Persistence",
+      "name": "implementation persisted to code_implementations (DB)",
+      "status": "PASS",
+      "detail": "rows=1"
+    },
+    {
+      "id": "LLM Features Testing-045",
+      "section": "13. Domain Matrix Extraction",
+      "name": "matrix returns per-paper comparative entries",
+      "status": "PASS",
+      "detail": "95s rows=2"
+    },
+    {
+      "id": "LLM Features Testing-046",
+      "section": "13. Domain Matrix Extraction",
+      "name": "matrix entry #1 carries full schema (strengths/models/dataset)",
+      "status": "PASS",
+      "detail": "keys=['id', 'paper', 'year', 'data_specs', 'dataset', 'variables', 'models', 'strengths', 'weaknesses', 'result', 'notes', 'fri']"
+    },
+    {
+      "id": "LLM Features Testing-047",
+      "section": "13. Domain Matrix Extraction",
+      "name": "matrix entry #1 content is extracted prose, not placeholder",
+      "status": "PASS",
+      "detail": "strengths='Parallelization , Linear Time Complexity '"
+    },
+    {
+      "id": "LLM Features Testing-048",
+      "section": "13. Domain Matrix Extraction",
+      "name": "matrix entry #1 fri is a reproducibility score (75-98)",
+      "status": "PASS",
+      "detail": "fri=97"
+    },
+    {
+      "id": "LLM Features Testing-049",
+      "section": "13. Domain Matrix Extraction",
+      "name": "matrix entry #2 carries full schema (strengths/models/dataset)",
+      "status": "PASS",
+      "detail": "keys=['id', 'paper', 'year', 'data_specs', 'dataset', 'variables', 'models', 'strengths', 'weaknesses', 'result', 'notes', 'fri']"
+    },
+    {
+      "id": "LLM Features Testing-050",
+      "section": "13. Domain Matrix Extraction",
+      "name": "matrix entry #2 content is extracted prose, not placeholder",
+      "status": "PASS",
+      "detail": "strengths='Residual connections reduce layer depth; improved training speedup by 30x on Ima'"
+    },
+    {
+      "id": "LLM Features Testing-051",
+      "section": "13. Domain Matrix Extraction",
+      "name": "matrix entry #2 fri is a reproducibility score (75-98)",
+      "status": "PASS",
+      "detail": "fri=96"
+    },
+    {
+      "id": "LLM Features Testing-052",
+      "section": "14. Citation Generation & Export",
+      "name": "citations/generate returns bibtexKey + 4 formats",
+      "status": "PASS",
+      "detail": "0s key=Researcher2025Sovereig"
+    },
+    {
+      "id": "LLM Features Testing-053",
+      "section": "14. Citation Generation & Export",
+      "name": "BibTeX entry is well-formed @article{}",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "LLM Features Testing-054",
+      "section": "14. Citation Generation & Export",
+      "name": "citations/export returns publication-ready styles",
+      "status": "PASS",
+      "detail": "HTTP 200"
+    },
+    {
+      "id": "LLM Features Testing-055",
+      "section": "15. RAG Ingest, pgvector Retrieval & Grounded Chat",
+      "name": "PDF ingest returns paperId + page memory",
+      "status": "PASS",
+      "detail": "HTTP 200 id=51d2c25f-78ee-43ea-8ec2-c414a457bc0f pages=1"
+    },
+    {
+      "id": "LLM Features Testing-056",
+      "section": "15. RAG Ingest, pgvector Retrieval & Grounded Chat",
+      "name": "ingest produced smart research questions",
+      "status": "PASS",
+      "detail": "questions=4"
+    },
+    {
+      "id": "LLM Features Testing-057",
+      "section": "15. RAG Ingest, pgvector Retrieval & Grounded Chat",
+      "name": "Grounded chat returns response + RAG citations",
+      "status": "PASS",
+      "detail": "33s len=782 citations=1"
+    },
+    {
+      "id": "LLM Features Testing-058",
+      "section": "15. RAG Ingest, pgvector Retrieval & Grounded Chat",
+      "name": "RAG citations are populated from document_chunks vector search",
+      "status": "PASS",
+      "detail": "citations=1 first={\"chunk_id\": \"1389c075-2436-4d24-b1d0-4d524c96b621\", \"page\": 1, \"section\": \"Document Start\", \"snippet\": \"Transformer Architecture Review\\nWe propose a new netwo"
+    },
+    {
+      "id": "LLM Features Testing-059",
+      "section": "15. RAG Ingest, pgvector Retrieval & Grounded Chat",
+      "name": "Citation entries expose snippet/key fields",
+      "status": "PASS",
+      "detail": ""
+    }
+  ]
+}

@@ -4,7 +4,8 @@ import {
   FolderPlus, FilePlus, ArrowLeft, Folder, FileText, Trash2, 
   Edit3, ChevronRight, ChevronLeft, Loader2, Database, HardDrive, LayoutGrid, 
   List, Play, X, Image as ImageIcon, AlertCircle, BookMarked, 
-  Search, ExternalLink, Copy, Check, Filter, Sparkles, Download, RefreshCw, Pin
+  Search, ExternalLink, Copy, Check, Filter, Sparkles, Download, RefreshCw, Pin,
+  FileCode
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 
@@ -32,6 +33,10 @@ export default function CentralVault({ setCurrentView }) {
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
   const [fileSearchQuery, setFileSearchQuery] = useState('');
+
+  // Research Papers State (from LaTeX Projects folder)
+  const [researchPapers, setResearchPapers] = useState([]);
+  const [papersLoading, setPapersLoading] = useState(false);
 
   // Dedicated Note Reader State
   const [readingNote, setReadingNote] = useState(null);
@@ -128,8 +133,34 @@ export default function CentralVault({ setCurrentView }) {
     fetchData(); 
   }, [currentFolderId]);
 
+  const fetchResearchPapers = async () => {
+    setPapersLoading(true);
+    try {
+      const uid = getCurrentUserId();
+      // Find the "LaTeX Projects" folder
+      const folderRes = await fetch(`${API_BASE}/api/library?user_id=${encodeURIComponent(uid)}`);
+      if (folderRes.ok) {
+        const allItems = await folderRes.json();
+        const latexFolder = allItems.find(f => f.type === 'folder' && f.name === 'LaTeX Projects');
+        if (latexFolder) {
+          // Get files inside LaTeX Projects folder
+          const filesRes = await fetch(`${API_BASE}/api/library?parentId=${latexFolder.id}&user_id=${encodeURIComponent(uid)}`);
+          if (filesRes.ok) {
+            const papers = await filesRes.json();
+            setResearchPapers(papers.filter(p => p.type === 'file'));
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("Research papers sync error", err);
+    } finally {
+      setPapersLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (activeTab === 'notes') fetchNotes();
+    if (activeTab === 'papers') fetchResearchPapers();
   }, [activeTab]);
 
   useEffect(() => {
@@ -313,12 +344,23 @@ export default function CentralVault({ setCurrentView }) {
         } else {
           showFeedback('Failed to rename note', 'error');
         }
-      } else if (modal.type === 'DELETE') {
+      } else if (modal.type === 'DELETE' || modal.type === 'DELETE_PAPER') {
         const res = await fetch(`${API_BASE}/api/library/${modal.item.id}`, { method: 'DELETE' });
         if (res.ok) {
-          showFeedback('Item removed');
+          showFeedback(modal.type === 'DELETE_PAPER' ? 'Research paper removed from Central Vault' : 'Item removed');
           fetchData();
+          if (activeTab === 'papers' || modal.type === 'DELETE_PAPER') {
+            fetchResearchPapers();
+          }
         }
+      } else if (modal.type === 'DELETE_ALL_PAPERS') {
+        for (const p of researchPapers) {
+          try { await fetch(`${API_BASE}/api/library/${p.id}`, { method: 'DELETE' }); } catch {}
+        }
+        showFeedback('All previous research papers removed from Central Vault');
+        setResearchPapers([]);
+        fetchResearchPapers();
+        fetchData();
       }
     } catch (err) {
       showFeedback('Action failed', 'error');
@@ -428,11 +470,26 @@ export default function CentralVault({ setCurrentView }) {
         </div>
 
         <div className="flex items-center gap-6">
-          <div className="flex items-center gap-2 bg-black/20 px-4 py-2 rounded-xl border border-white/5 font-mono text-xs">
-            <HardDrive size={14} className="text-cyan-400" />
-            <span className="text-slate-400">Storage:</span>
-            <span className="text-white font-bold">{quota.count} / {quota.limit} Items</span>
-          </div>
+          {activeTab === 'papers' ? (
+            <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 px-3.5 py-1.5 rounded-xl font-mono text-xs">
+              <FileCode size={14} className="text-amber-400" />
+              <span className="text-amber-300 font-bold">LaTeX Storage:</span>
+              <span className="text-white font-bold">{researchPapers.length} Papers</span>
+              <span className="text-emerald-400 text-[10px] uppercase font-semibold hidden sm:inline">(Separate Storage · No 100 Limit)</span>
+            </div>
+          ) : activeTab === 'notes' ? (
+            <div className="flex items-center gap-2 bg-cyan-500/10 border border-cyan-500/30 px-3.5 py-1.5 rounded-xl font-mono text-xs">
+              <BookMarked size={14} className="text-cyan-400" />
+              <span className="text-cyan-300 font-bold">Notes Vault:</span>
+              <span className="text-white font-bold">{vaultNotes.length} Insights</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 bg-black/20 px-4 py-2 rounded-xl border border-white/5 font-mono text-xs">
+              <HardDrive size={14} className="text-cyan-400" />
+              <span className="text-slate-400">Vault Storage:</span>
+              <span className="text-white font-bold">{quota.count} / {quota.limit} Items</span>
+            </div>
+          )}
 
           <div className="flex bg-black/30 p-1 rounded-xl border border-white/10 font-mono text-xs uppercase tracking-widest">
             <button 
@@ -440,6 +497,12 @@ export default function CentralVault({ setCurrentView }) {
               className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-all ${activeTab === 'files' ? 'bg-cyan-500 text-black font-bold shadow-md' : 'text-slate-400 hover:text-white'}`}
             >
               <Folder size={14}/> Files
+            </button>
+            <button 
+              onClick={() => setActiveTab('papers')} 
+              className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-all ${activeTab === 'papers' ? 'bg-amber-500 text-black font-bold shadow-md' : 'text-slate-400 hover:text-white'}`}
+            >
+              <FileCode size={14}/> Research Papers
             </button>
             <button 
               onClick={() => setActiveTab('notes')} 
@@ -657,235 +720,355 @@ export default function CentralVault({ setCurrentView }) {
               </div>
             )}
           </div>
-        ) : readingNote ? (
-          /* DEDICATED NOTE READER VIEW */
-          <div className="max-w-4xl mx-auto space-y-6 animate-fadeIn pb-12">
-            {/* Top Reader Navigation Bar */}
-            <div className="flex items-center justify-between pb-4 border-b border-white/10">
-              <button 
-                onClick={() => setReadingNote(null)}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white font-mono text-xs uppercase tracking-wider transition-all"
-              >
-                <ArrowLeft size={14} className="text-cyan-400" /> Go Back to Notes
-              </button>
-
-              <div className="flex items-center gap-2">
+        ) : activeTab === 'notes' ? (
+          readingNote ? (
+            /* DEDICATED NOTE READER VIEW */
+            <div className="max-w-4xl mx-auto space-y-6 animate-fadeIn pb-12">
+              {/* Top Reader Navigation Bar */}
+              <div className="flex items-center justify-between pb-4 border-b border-white/10">
                 <button 
-                  onClick={(e) => handleTogglePinNote(e, readingNote)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border font-mono text-xs transition-all ${readingNote.is_pinned ? 'bg-amber-500/20 border-amber-500/40 text-amber-300' : 'bg-white/5 border-white/10 text-slate-400 hover:text-white'}`}
-                  title={readingNote.is_pinned ? "Unpin Note" : "Pin Note to Top"}
+                  onClick={() => setReadingNote(null)}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white font-mono text-xs uppercase tracking-wider transition-all"
                 >
-                  <Pin size={13} className={readingNote.is_pinned ? "fill-amber-400" : ""} />
-                  {readingNote.is_pinned ? "Pinned" : "Pin Note"}
+                  <ArrowLeft size={14} className="text-cyan-400" /> Go Back to Notes
                 </button>
 
-                <button 
-                  onClick={(e) => handleRenameNote(e, readingNote)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white font-mono text-xs transition-all"
-                  title="Rename Note"
-                >
-                  <Edit3 size={13} /> Rename
-                </button>
-
-                <button 
-                  onClick={() => handleCopyNote(readingNote.id, readingNote.text || readingNote.insight)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white font-mono text-xs transition-all"
-                  title="Copy Full Content"
-                >
-                  {copiedNoteId === readingNote.id ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
-                  {copiedNoteId === readingNote.id ? "Copied" : "Copy"}
-                </button>
-
-                <button 
-                  onClick={() => handleOpenNoteInInsightLens(readingNote)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 font-mono text-xs uppercase font-bold hover:bg-cyan-500/30 transition-all"
-                  title="Open in InsightLens at exact page"
-                >
-                  <ExternalLink size={13} /> Open Lens (p.{readingNote.page_number || 1})
-                </button>
-              </div>
-            </div>
-
-            {/* Note Reader Content Card */}
-            <div className={`p-8 rounded-3xl border shadow-2xl space-y-6 ${isLight ? 'bg-white border-slate-200' : 'bg-[#0d1117] border-white/10'}`}>
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <div className="flex items-center gap-2 mb-2 flex-wrap">
-                    <span className="px-2.5 py-1 rounded-lg bg-cyan-500/10 border border-cyan-500/20 font-mono text-[11px] text-cyan-400 font-bold uppercase tracking-wider">
-                      {readingNote.source}
-                    </span>
-                    <span className="text-xs font-mono text-slate-400">
-                      Page {readingNote.page_number || 1}
-                    </span>
-                    {readingNote.is_pinned && (
-                      <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[10px] uppercase font-bold flex items-center gap-1">
-                        <Pin size={10} className="fill-amber-300" /> Pinned
-                      </span>
-                    )}
-                  </div>
-                  <h2 className={`text-xl font-bold font-sans ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                    {readingNote.title || readingNote.source || "Research Note"}
-                  </h2>
-                </div>
-                <span className="text-xs font-mono text-slate-500 whitespace-nowrap">
-                  {readingNote.created_at ? new Date(readingNote.created_at).toLocaleDateString() : 'Active'}
-                </span>
-              </div>
-
-              {/* Note Image if Present */}
-              {readingNote.image && (
-                <div className="rounded-2xl overflow-hidden border border-white/10 bg-black/40 p-2">
-                  <img 
-                    src={`data:image/jpeg;base64,${readingNote.image}`} 
-                    alt="Note Diagram / Capture" 
-                    className="max-h-96 mx-auto rounded-xl object-contain shadow-lg" 
-                  />
-                </div>
-              )}
-
-              {/* Note Text */}
-              {readingNote.text && (
-                <div className="space-y-2">
-                  <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider block font-bold">Annotated Text Passage</span>
-                  <div className={`p-5 rounded-2xl border text-sm font-serif leading-relaxed select-text ${isLight ? 'bg-slate-50 border-slate-200 text-slate-800' : 'bg-black/30 border-white/5 text-slate-200'}`}>
-                    "{readingNote.text}"
-                  </div>
-                </div>
-              )}
-
-              {/* Note AI Insight */}
-              {readingNote.insight && (
-                <div className="space-y-2">
-                  <div className="text-[10px] font-mono text-amber-400 uppercase tracking-widest flex items-center gap-1.5 font-bold">
-                    <Sparkles size={12} className="text-amber-400" /> Deep Synthesis & AI Insight
-                  </div>
-                  <div className={`p-5 rounded-2xl border leading-relaxed text-sm select-text whitespace-pre-wrap ${isLight ? 'bg-amber-50/50 border-amber-200 text-slate-800' : 'bg-black/40 border-white/5 text-slate-300'}`}>
-                    {readingNote.insight}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        ) : (
-          /* NOTES TAB - GRID VIEW */
-          <div className="space-y-6">
-            <div className="flex flex-col md:flex-row gap-4 items-center justify-between bg-black/20 p-4 rounded-2xl border border-white/5">
-              <div className="relative w-full md:w-96">
-                <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
-                <input 
-                  type="text" 
-                  value={noteSearchQuery}
-                  onChange={(e) => setNoteSearchQuery(e.target.value)}
-                  placeholder="Search notes, titles, or insights..."
-                  className="w-full pl-9 pr-4 py-2 bg-black/40 border border-white/10 rounded-xl text-xs text-white placeholder-slate-600 outline-none font-mono focus:border-cyan-400 transition-colors"
-                />
-              </div>
-
-              <div className="flex items-center gap-3 w-full md:w-auto">
-                <Filter size={14} className="text-slate-500" />
-                <select 
-                  value={selectedNoteSource}
-                  onChange={(e) => setSelectedNoteSource(e.target.value)}
-                  className="bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs font-mono text-white outline-none cursor-pointer"
-                >
-                  {uniqueSources.map(src => (
-                    <option key={src} value={src}>{src}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {filteredNotes.length === 0 ? (
-              <div className="text-center py-20 border border-dashed border-white/10 rounded-3xl">
-                <BookMarked size={40} className="text-slate-600 mx-auto mb-3" />
-                <p className="font-mono text-xs uppercase tracking-widest text-slate-500">No notes found</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                {filteredNotes.map(note => (
-                  <div 
-                    key={note.id} 
-                    onClick={() => setReadingNote(note)}
-                    className={`p-5 rounded-2xl border flex flex-col justify-between space-y-4 shadow-lg transition-all relative group cursor-pointer hover:scale-[1.01] ${note.is_pinned ? 'border-amber-500/40 bg-amber-500/[0.03]' : isLight ? 'bg-slate-50 border-slate-200' : 'bg-white/[0.02] border-white/5'}`}
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={(e) => handleTogglePinNote(e, readingNote)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border font-mono text-xs transition-all ${readingNote.is_pinned ? 'bg-amber-500/20 border-amber-500/40 text-amber-300' : 'bg-white/5 border-white/10 text-slate-400 hover:text-white'}`}
+                    title={readingNote.is_pinned ? "Unpin Note" : "Pin Note to Top"}
                   >
-                    <div>
-                      <div className="flex items-center justify-between border-b border-white/5 pb-2 mb-3">
-                        <div className="flex items-center gap-2 truncate max-w-[200px]">
-                          {note.is_pinned && <Pin size={12} className="text-amber-400 fill-amber-400 flex-shrink-0" />}
-                          <span className="text-[10px] font-mono text-cyan-400 font-bold uppercase tracking-wider truncate">
-                            {note.title || note.source} (p. {note.page_number || 1})
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                          <button 
-                            onClick={(e) => handleTogglePinNote(e, note)} 
-                            className={`p-1 rounded transition-colors ${note.is_pinned ? 'text-amber-400' : 'text-slate-500 hover:text-amber-300'}`} 
-                            title={note.is_pinned ? "Unpin note" : "Pin note to top"}
-                          >
-                            <Pin size={12} className={note.is_pinned ? "fill-amber-400" : ""} />
-                          </button>
-                          <button 
-                            onClick={(e) => handleRenameNote(e, note)} 
-                            className="p-1 text-slate-500 hover:text-white rounded transition-colors" 
-                            title="Rename note"
-                          >
-                            <Edit3 size={12} />
-                          </button>
-                          <button 
-                            onClick={() => handleCopyNote(note.id, note.text || note.insight)} 
-                            className="p-1 text-slate-500 hover:text-white rounded transition-colors" 
-                            title="Copy text"
-                          >
-                            {copiedNoteId === note.id ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
-                          </button>
-                          <button 
-                            onClick={() => handleDeleteNote(note.id)} 
-                            className="p-1 text-slate-500 hover:text-red-400 rounded transition-colors" 
-                            title="Delete note"
-                          >
-                            <Trash2 size={12} />
-                          </button>
-                        </div>
-                      </div>
+                    <Pin size={13} className={readingNote.is_pinned ? "fill-amber-400" : ""} />
+                    {readingNote.is_pinned ? "Pinned" : "Pin Note"}
+                  </button>
 
-                      {note.image && (
-                        <img src={`data:image/jpeg;base64,${note.image}`} alt="Note Context" className="w-full rounded-xl border border-white/10 mb-3 shadow-sm max-h-48 object-cover" />
-                      )}
+                  <button 
+                    onClick={(e) => handleRenameNote(e, readingNote)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white font-mono text-xs transition-all"
+                    title="Rename Note"
+                  >
+                    <Edit3 size={13} /> Rename
+                  </button>
 
-                      {note.text && (
-                        <p className="text-xs text-slate-300 font-serif leading-relaxed mb-2 select-text line-clamp-4">
-                          "{note.text}"
-                        </p>
-                      )}
+                  <button 
+                    onClick={() => handleCopyNote(readingNote.id, readingNote.text || readingNote.insight)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white font-mono text-xs transition-all"
+                    title="Copy Full Content"
+                  >
+                    {copiedNoteId === readingNote.id ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+                    {copiedNoteId === readingNote.id ? "Copied" : "Copy"}
+                  </button>
 
-                      {note.insight && (
-                        <div className="p-3 bg-black/40 border border-white/5 rounded-xl text-[11px] text-slate-400 font-sans leading-relaxed select-text line-clamp-3">
-                          <div className="text-[9px] font-mono text-slate-500 uppercase tracking-widest mb-1 flex items-center gap-1">
-                            <Sparkles size={10} className="text-amber-400" /> AI Insight
-                          </div>
-                          {note.insight}
-                        </div>
+                  <button 
+                    onClick={() => handleOpenNoteInInsightLens(readingNote)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 font-mono text-xs uppercase font-bold hover:bg-cyan-500/30 transition-all"
+                    title="Open in InsightLens at exact page"
+                  >
+                    <ExternalLink size={13} /> Open Lens (p.{readingNote.page_number || 1})
+                  </button>
+                </div>
+              </div>
+
+              {/* Note Reader Content Card */}
+              <div className={`p-8 rounded-3xl border shadow-2xl space-y-6 ${isLight ? 'bg-white border-slate-200' : 'bg-[#0d1117] border-white/10'}`}>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2 mb-2 flex-wrap">
+                      <span className="px-2.5 py-1 rounded-lg bg-cyan-500/10 border border-cyan-500/20 font-mono text-[11px] text-cyan-400 font-bold uppercase tracking-wider">
+                        {readingNote.source}
+                      </span>
+                      <span className="text-xs font-mono text-slate-400">
+                        Page {readingNote.page_number || 1}
+                      </span>
+                      {readingNote.is_pinned && (
+                        <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[10px] uppercase font-bold flex items-center gap-1">
+                          <Pin size={10} className="fill-amber-300" /> Pinned
+                        </span>
                       )}
                     </div>
+                    <h2 className={`text-xl font-bold font-sans ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                      {readingNote.title || readingNote.source || "Research Note"}
+                    </h2>
+                  </div>
+                  <span className="text-xs font-mono text-slate-500 whitespace-nowrap">
+                    {readingNote.created_at ? new Date(readingNote.created_at).toLocaleDateString() : 'Active'}
+                  </span>
+                </div>
 
-                    <div className="pt-2 border-t border-white/5 flex items-center justify-between text-[9px] font-mono text-slate-500">
-                      <span>{note.created_at?.substring(0, 10)}</span>
-                      <div className="flex items-center gap-3">
-                        <span className="text-slate-400 hover:text-white transition-colors">Click to read full &rarr;</span>
+                {/* Note Image if Present */}
+                {readingNote.image && (
+                  <div className="rounded-2xl overflow-hidden border border-white/10 bg-black/40 p-2">
+                    <img 
+                      src={`data:image/jpeg;base64,${readingNote.image}`} 
+                      alt="Note Diagram / Capture" 
+                      className="max-h-96 mx-auto rounded-xl object-contain shadow-lg" 
+                    />
+                  </div>
+                )}
+
+                {/* Note Text */}
+                {readingNote.text && (
+                  <div className="space-y-2">
+                    <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider block font-bold">Annotated Text Passage</span>
+                    <div className={`p-5 rounded-2xl border text-sm font-serif leading-relaxed select-text ${isLight ? 'bg-slate-50 border-slate-200 text-slate-800' : 'bg-black/30 border-white/5 text-slate-200'}`}>
+                      "{readingNote.text}"
+                    </div>
+                  </div>
+                )}
+
+                {/* Note AI Insight */}
+                {readingNote.insight && (
+                  <div className="space-y-2">
+                    <div className="text-[10px] font-mono text-amber-400 uppercase tracking-widest flex items-center gap-1.5 font-bold">
+                      <Sparkles size={12} className="text-amber-400" /> Deep Synthesis & AI Insight
+                    </div>
+                    <div className={`p-5 rounded-2xl border leading-relaxed text-sm select-text whitespace-pre-wrap ${isLight ? 'bg-amber-50/50 border-amber-200 text-slate-800' : 'bg-black/40 border-white/5 text-slate-300'}`}>
+                      {readingNote.insight}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            /* NOTES TAB - GRID VIEW ONLY */
+            <div className="space-y-6">
+              <div className="flex flex-col md:flex-row gap-4 items-center justify-between bg-black/20 p-4 rounded-2xl border border-white/5">
+                <div className="relative w-full md:w-96">
+                  <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
+                  <input 
+                    type="text" 
+                    value={noteSearchQuery}
+                    onChange={(e) => setNoteSearchQuery(e.target.value)}
+                    placeholder="Search notes, titles, or insights..."
+                    className="w-full pl-9 pr-4 py-2 bg-black/40 border border-white/10 rounded-xl text-xs text-white placeholder-slate-600 outline-none font-mono focus:border-cyan-400 transition-colors"
+                  />
+                </div>
+
+                <div className="flex items-center gap-3 w-full md:w-auto">
+                  <Filter size={14} className="text-slate-500" />
+                  <select 
+                    value={selectedNoteSource}
+                    onChange={(e) => setSelectedNoteSource(e.target.value)}
+                    className="bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs font-mono text-white outline-none cursor-pointer"
+                  >
+                    {uniqueSources.map(src => (
+                      <option key={src} value={src}>{src}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {filteredNotes.length === 0 ? (
+                <div className="text-center py-20 border border-dashed border-white/10 rounded-3xl">
+                  <BookMarked size={40} className="text-slate-600 mx-auto mb-3" />
+                  <p className="font-mono text-xs uppercase tracking-widest text-slate-500">No notes found</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {filteredNotes.map(note => (
+                    <div 
+                      key={note.id} 
+                      onClick={() => setReadingNote(note)}
+                      className={`p-5 rounded-2xl border flex flex-col justify-between space-y-4 shadow-lg transition-all relative group cursor-pointer hover:scale-[1.01] ${note.is_pinned ? 'border-amber-500/40 bg-amber-500/[0.03]' : isLight ? 'bg-slate-50 border-slate-200' : 'bg-white/[0.02] border-white/5'}`}
+                    >
+                      <div>
+                        <div className="flex items-center justify-between border-b border-white/5 pb-2 mb-3">
+                          <div className="flex items-center gap-2 truncate max-w-[200px]">
+                            {note.is_pinned && <Pin size={12} className="text-amber-400 fill-amber-400 flex-shrink-0" />}
+                            <span className="text-[10px] font-mono text-cyan-400 font-bold uppercase tracking-wider truncate">
+                              {note.title || note.source} (p. {note.page_number || 1})
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                            <button 
+                              onClick={(e) => handleTogglePinNote(e, note)} 
+                              className={`p-1 rounded transition-colors ${note.is_pinned ? 'text-amber-400' : 'text-slate-500 hover:text-amber-300'}`} 
+                              title={note.is_pinned ? "Unpin note" : "Pin note to top"}
+                            >
+                              <Pin size={12} className={note.is_pinned ? "fill-amber-400" : ""} />
+                            </button>
+                            <button 
+                              onClick={(e) => handleRenameNote(e, note)} 
+                              className="p-1 text-slate-500 hover:text-white rounded transition-colors" 
+                              title="Rename note"
+                            >
+                              <Edit3 size={12} />
+                            </button>
+                            <button 
+                              onClick={() => handleCopyNote(note.id, note.text || note.insight)} 
+                              className="p-1 text-slate-500 hover:text-white rounded transition-colors" 
+                              title="Copy text"
+                            >
+                              {copiedNoteId === note.id ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                            </button>
+                            <button 
+                              onClick={() => handleDeleteNote(note.id)} 
+                              className="p-1 text-slate-500 hover:text-red-400 rounded transition-colors" 
+                              title="Delete note"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        </div>
+
+                        {note.image && (
+                          <img src={`data:image/jpeg;base64,${note.image}`} alt="Note Context" className="w-full rounded-xl border border-white/10 mb-3 shadow-sm max-h-48 object-cover" />
+                        )}
+
+                        {note.text && (
+                          <p className="text-xs text-slate-300 font-serif leading-relaxed mb-2 select-text line-clamp-4">
+                            "{note.text}"
+                          </p>
+                        )}
+
+                        {note.insight && (
+                          <div className="p-3 bg-black/40 border border-white/5 rounded-xl text-[11px] text-slate-400 font-sans leading-relaxed select-text line-clamp-3">
+                            <div className="text-[9px] font-mono text-slate-500 uppercase tracking-widest mb-1 flex items-center gap-1">
+                              <Sparkles size={10} className="text-amber-400" /> AI Insight
+                            </div>
+                            {note.insight}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="pt-2 border-t border-white/5 flex items-center justify-between text-[9px] font-mono text-slate-500">
+                        <span>{note.created_at?.substring(0, 10)}</span>
+                        <div className="flex items-center gap-3">
+                          <span className="text-slate-400 hover:text-white transition-colors">Click to read full &rarr;</span>
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); handleOpenNoteInInsightLens(note); }}
+                            className="flex items-center gap-1 text-cyan-400 hover:underline uppercase tracking-widest font-bold"
+                          >
+                            Lens <ExternalLink size={9} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        ) : activeTab === 'papers' ? (
+          /* DEDICATED RESEARCH PAPERS TAB (100% SEPARATE - NO NOTES ON TOP) */
+          <div className="space-y-6">
+            <div className="flex flex-col md:flex-row gap-4 items-center justify-between bg-black/20 p-4 rounded-2xl border border-white/5">
+              <div className="flex items-center gap-3 text-amber-400 font-mono text-xs uppercase tracking-widest">
+                <FileCode size={16} className="text-amber-400" />
+                <span>LaTeX Projects Vault</span>
+                <span className="text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full font-semibold">Separate Storage</span>
+              </div>
+              <div className="flex items-center gap-3 flex-wrap">
+                <span className="text-xs font-mono text-slate-400 bg-white/5 border border-white/10 px-3 py-1.5 rounded-xl">
+                  {researchPapers.length} papers · Doesn't consume 100 limit
+                </span>
+                {researchPapers.length > 0 && (
+                  <button 
+                    onClick={() => setModal({ isOpen: true, type: 'DELETE_ALL_PAPERS', item: null, inputValue: '' })} 
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-300 font-mono text-xs font-bold transition-all cursor-pointer"
+                    title="Delete all previous research papers"
+                  >
+                    <Trash2 size={12} /> Clear All Papers
+                  </button>
+                )}
+                <button onClick={fetchResearchPapers} disabled={papersLoading} className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white font-mono text-xs transition-colors cursor-pointer">
+                  <RefreshCw size={12} className={papersLoading ? 'animate-spin' : ''} />
+                  Refresh
+                </button>
+              </div>
+            </div>
+
+            {papersLoading ? (
+              <div className="text-center py-12">
+                <RefreshCw size={32} className="text-amber-400 animate-spin mx-auto mb-3" />
+                <p className="font-mono text-xs text-slate-500">Loading research papers from LaTeX Projects...</p>
+              </div>
+            ) : researchPapers.length === 0 ? (
+              <div className="text-center py-20 border border-dashed border-white/10 rounded-3xl">
+                <FileCode size={48} className="text-amber-400/50 mx-auto mb-4" />
+                <p className="font-mono text-xs uppercase tracking-widest text-slate-500 mb-2">No Research Papers Found</p>
+                <p className="text-xs text-slate-400 mb-6 max-w-md mx-auto">
+                  Papers created in LaTeX Studio automatically sync here into dedicated separate storage without consuming your 100-file Vault limit.
+                </p>
+                <button 
+                  onClick={() => setCurrentView('latex-studio')}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-amber-500/20 border border-amber-500/40 text-amber-300 rounded-xl font-mono text-xs uppercase font-bold hover:bg-amber-500/30 transition-all cursor-pointer"
+                >
+                  <FileCode size={13} /> Open LaTeX Studio
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {researchPapers.map(paper => (
+                  <div 
+                    key={paper.id}
+                    className="p-4 rounded-2xl border transition-all cursor-pointer group relative overflow-hidden flex flex-col justify-between h-36 bg-white/[0.02] border-white/5 hover:border-amber-500/40"
+                    onClick={() => {
+                      const filePayload = {
+                        id: paper.id,
+                        title: paper.name,
+                        url: `${API_BASE}/api/library/file/${paper.id}`,
+                        isLatexProject: true
+                      };
+                      localStorage.setItem('sg_active_vault_file', JSON.stringify(filePayload));
+                      window.dispatchEvent(new CustomEvent('sg-open-file', { detail: filePayload }));
+                      setCurrentView('latex-studio');
+                    }}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="p-2.5 rounded-xl bg-white/5 border border-white/10 text-amber-400">
+                        <FileCode size={20}/>
+                      </div>
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button 
-                          onClick={(e) => { e.stopPropagation(); handleOpenNoteInInsightLens(note); }}
-                          className="flex items-center gap-1 text-cyan-400 hover:underline uppercase tracking-widest font-bold"
+                          onClick={(e) => { 
+                            e.stopPropagation(); 
+                            const filePayload = {
+                              id: paper.id,
+                              title: paper.name,
+                              url: `${API_BASE}/api/library/file/${paper.id}`,
+                              isLatexProject: true
+                            };
+                            localStorage.setItem('sg_active_vault_file', JSON.stringify(filePayload));
+                            window.dispatchEvent(new CustomEvent('sg-open-file', { detail: filePayload }));
+                            setCurrentView('latex-studio');
+                          }} 
+                          className="p-1.5 rounded-lg hover:bg-cyan-500/20 text-slate-400 hover:text-cyan-300 transition-colors"
+                          title="Open in LaTeX Studio"
                         >
-                          Lens <ExternalLink size={9} />
+                          <FileCode size={13}/>
+                        </button>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); handleOpenCiteForVaultFile(paper); }} 
+                          className="p-1.5 rounded-lg hover:bg-teal-500/20 text-slate-400 hover:text-teal-300 transition-colors" 
+                          title="Export Citation"
+                        >
+                          <FileText size={13}/>
+                        </button>
+                        <button 
+                          onClick={(e) => { 
+                            e.stopPropagation(); 
+                            setModal({ isOpen: true, type: 'DELETE_PAPER', item: paper, inputValue: '' }); 
+                          }} 
+                          className="p-1.5 rounded-lg hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition-colors" 
+                          title="Delete Research Paper from Vault"
+                        >
+                          <Trash2 size={13}/>
                         </button>
                       </div>
+                    </div>
+
+                    <div>
+                      <h4 className="text-xs font-bold truncate mb-1 text-white">{paper.name}</h4>
+                      <p className="text-[10px] font-mono text-slate-500 uppercase">LaTeX Project • {paper.created_at ? paper.created_at.substring(0, 10) : 'Recent'}</p>
                     </div>
                   </div>
                 ))}
               </div>
             )}
           </div>
-        )}
+        ) : null}
       </div>
 
       {/* ACTION MODAL */}
@@ -898,15 +1081,21 @@ export default function CentralVault({ setCurrentView }) {
                 {modal.type === 'RENAME' && 'Rename Item'}
                 {modal.type === 'RENAME_NOTE' && 'Rename Note'}
                 {modal.type === 'DELETE' && 'Confirm Deletion'}
+                {modal.type === 'DELETE_PAPER' && 'Delete Research Paper'}
+                {modal.type === 'DELETE_ALL_PAPERS' && 'Delete All Previous Research Papers'}
               </h3>
               <button onClick={() => setModal({ isOpen: false, type: '', item: null, inputValue: '' })} className="text-slate-500 hover:text-white">
                 <X size={16}/>
               </button>
             </div>
 
-            {modal.type === 'DELETE' ? (
+            {modal.type === 'DELETE' || modal.type === 'DELETE_PAPER' ? (
               <p className="text-xs text-slate-400 font-light leading-relaxed">
-                Are you sure you want to delete <span className="text-white font-bold">"{modal.item?.name}"</span>? This action cannot be undone.
+                Are you sure you want to delete <span className="text-white font-bold">"{modal.item?.name}"</span>? {modal.type === 'DELETE_PAPER' ? 'This research paper will be removed from your Central Vault.' : 'This action cannot be undone.'}
+              </p>
+            ) : modal.type === 'DELETE_ALL_PAPERS' ? (
+              <p className="text-xs text-slate-400 font-light leading-relaxed">
+                Are you sure you want to delete all <span className="text-white font-bold">{researchPapers.length} previous research papers</span> from your Central Vault? This will free up your dedicated LaTeX vault storage.
               </p>
             ) : (
               <div>
@@ -925,14 +1114,14 @@ export default function CentralVault({ setCurrentView }) {
             )}
 
             <div className="flex gap-3 justify-end pt-2">
-              <button onClick={() => setModal({ isOpen: false, type: '', item: null, inputValue: '' })} className="px-4 py-2 rounded-xl text-xs font-mono uppercase text-slate-400 hover:bg-white/5">
+              <button onClick={() => setModal({ isOpen: false, type: '', item: null, inputValue: '' })} className="px-4 py-2 rounded-xl text-xs font-mono uppercase text-slate-400 hover:bg-white/5 cursor-pointer">
                 Cancel
               </button>
               <button 
                 onClick={submitModalAction} 
-                className={`px-4 py-2 rounded-xl text-xs font-mono font-bold uppercase ${modal.type === 'DELETE' ? 'bg-red-500 text-white hover:bg-red-600' : 'bg-cyan-500 text-black hover:bg-cyan-400'}`}
+                className={`px-4 py-2 rounded-xl text-xs font-mono font-bold uppercase cursor-pointer ${modal.type === 'DELETE' || modal.type === 'DELETE_PAPER' || modal.type === 'DELETE_ALL_PAPERS' ? 'bg-red-500 text-white hover:bg-red-600' : 'bg-cyan-500 text-black hover:bg-cyan-400'}`}
               >
-                {modal.type === 'DELETE' ? 'Delete' : 'Save'}
+                {modal.type === 'DELETE' || modal.type === 'DELETE_PAPER' || modal.type === 'DELETE_ALL_PAPERS' ? 'Delete' : 'Save'}
               </button>
             </div>
           </div>

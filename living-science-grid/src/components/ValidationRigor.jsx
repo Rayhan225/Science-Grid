@@ -6,6 +6,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
+import { formatLLMResponseText } from './LLMResponseView';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 import { 
@@ -52,6 +53,36 @@ const HIGHLIGHTER_STYLES = `
     border-bottom: 2.5px solid #f59e0b !important;
     box-shadow: 0 0 10px rgba(245, 158, 11, 0.6) !important;
   }
+  .react-pdf__Page {
+    position: relative !important;
+    display: block !important;
+    margin: 0 auto !important;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2);
+  }
+  .react-pdf__Page__canvas {
+    display: block !important;
+    margin: 0 auto !important;
+    max-width: 100% !important;
+    height: auto !important;
+  }
+  .react-pdf__Page__textContent {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    transform-origin: 0 0 !important;
+    pointer-events: auto !important;
+    z-index: 10 !important;
+    mix-blend-mode: multiply;
+  }
+  .react-pdf__Page__textContent > span {
+    color: transparent !important;
+    cursor: text !important;
+  }
+  .react-pdf__Page__annotations {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+  }
 `;
 
 const getAnchorCategory = (anchor, snippet = "") => {
@@ -70,11 +101,10 @@ const getAnchorCategory = (anchor, snippet = "") => {
 };
 
 try {
-  if (!pdfjs.GlobalWorkerOptions.workerSrc) {
-    pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
-  }
+  const workerUrl = `https://unpkg.com/pdfjs-dist@${pdfjs.version || pdfjsLib?.version || '5.4.296'}/build/pdf.worker.min.mjs`;
+  pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
   if (pdfjsLib?.GlobalWorkerOptions) {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjs.GlobalWorkerOptions.workerSrc;
+    pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
   }
 } catch (e) {}
 
@@ -181,6 +211,8 @@ export default function ValidationRigor({ setStatus }) {
   const [manuscriptContent, setManuscriptContent] = useState("");
   const [selectedPaperId, setSelectedPaperId] = useState(null);
   const [pdfFile, setPdfFile] = useState(null);
+  // Stable object-URL source for react-pdf (pdfjs transfers/detaches `data` buffers it receives).
+  const [pdfSource, setPdfSource] = useState(null);
   const [pdfTotalPages, setPdfTotalPages] = useState(1);
   const [pdfCurrentPage, setPdfCurrentPage] = useState(1);
   const [pdfScale, setPdfScale] = useState(1.15);
@@ -189,6 +221,16 @@ export default function ValidationRigor({ setStatus }) {
   const [activeAnchor, setActiveAnchor] = useState(null);
   const [activeSnippet, setActiveSnippet] = useState("");
   const [anchorTargetPage, setAnchorTargetPage] = useState(null);
+
+  // Keep a single stable object URL for the mounted PDF so multiple <Document> / worker
+  // mounts never share (and pdfjs never detaches) the same ArrayBuffer.
+  useEffect(() => {
+    setPdfSource(null);
+    if (!pdfFile) return undefined;
+    const url = URL.createObjectURL(pdfFile);
+    setPdfSource(url);
+    return () => URL.revokeObjectURL(url);
+  }, [pdfFile]);
 
   // Inspection Data
   const [plagiarismData, setPlagiarismData] = useState(null);
@@ -434,7 +476,7 @@ export default function ValidationRigor({ setStatus }) {
 
           try {
             const arrayBuffer = await file.arrayBuffer();
-            const pdf = await pdfjs.getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
+            const pdf = await pdfjs.getDocument({ data: new Uint8Array(arrayBuffer.slice(0)) }).promise;
             const total = pdf.numPages;
             setPdfTotalPages(total);
 
@@ -643,7 +685,7 @@ export default function ValidationRigor({ setStatus }) {
         setPdfCurrentPage(1);
 
         const arrayBuffer = await file.arrayBuffer();
-        const pdf = await pdfjs.getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
+        const pdf = await pdfjs.getDocument({ data: new Uint8Array(arrayBuffer.slice(0)) }).promise;
         const total = pdf.numPages;
         setPdfTotalPages(total);
 
@@ -720,7 +762,7 @@ export default function ValidationRigor({ setStatus }) {
 
           try {
             const arrayBuffer = await file.arrayBuffer();
-            const pdf = await pdfjs.getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
+            const pdf = await pdfjs.getDocument({ data: new Uint8Array(arrayBuffer.slice(0)) }).promise;
             const total = pdf.numPages;
             setPdfTotalPages(total);
 
@@ -1913,7 +1955,7 @@ ${flags.map((f, i) => `### Flag ${i + 1}: [${f.severity}] ${f.title || f.categor
                   pdfFile ? (
                     <div className="w-full flex flex-col items-center py-2">
                       <Document
-                        file={pdfFile}
+                        file={pdfSource}
                         onLoadSuccess={({ numPages }) => setPdfTotalPages(numPages)}
                         loading={
                           <div className="p-12 flex flex-col items-center justify-center gap-2 text-slate-400 font-mono text-xs">
@@ -2035,12 +2077,12 @@ ${flags.map((f, i) => `### Flag ${i + 1}: [${f.severity}] ${f.title || f.categor
                       <span className="text-teal-400 font-bold">KaTeX Mathematical Engine</span>
                     </div>
 
-                    <div className="prose prose-invert prose-xs text-xs text-slate-300 leading-relaxed max-w-none space-y-4 font-serif">
+                    <div className="prose prose-invert max-w-none space-y-4 font-serif text-sm sm:text-base text-slate-200 leading-relaxed">
                       <ReactMarkdown
                         remarkPlugins={[remarkMath]}
                         rehypePlugins={[rehypeKatexOptions]}
                       >
-                        {manuscriptContent}
+                        {formatLLMResponseText(manuscriptContent)}
                       </ReactMarkdown>
                     </div>
                   </div>

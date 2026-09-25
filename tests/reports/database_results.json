@@ -1,0 +1,332 @@
+{
+  "suite": "Database Testing",
+  "generated": "2026-09-24 03:31:43",
+  "passed": 46,
+  "failed": 0,
+  "warned": 0,
+  "total": 46,
+  "cases": [
+    {
+      "id": "Database Testing-001",
+      "section": "Schema & Table Existence",
+      "name": "All 25 core tables exist",
+      "status": "PASS",
+      "detail": "36 tables total"
+    },
+    {
+      "id": "Database Testing-002",
+      "section": "Schema & Table Existence",
+      "name": "Seeded demo persona logins exist in users table",
+      "status": "PASS",
+      "detail": "found=['usr_default', 'usr_programmer', 'usr_researcher', 'usr_reviewer', 'usr_student'] (admin@scholargrid.io -> usr_default; legacy content owner 'usr_admin' lives in data tables, not users)"
+    },
+    {
+      "id": "Database Testing-003",
+      "section": "Schema & Table Existence",
+      "name": "Legacy admin content scope 'usr_admin' holds shared vault files",
+      "status": "PASS",
+      "detail": "30 files under usr_admin"
+    },
+    {
+      "id": "Database Testing-004",
+      "section": "Schema & Table Existence",
+      "name": "Isolation-critical tables carry a user_id column",
+      "status": "PASS",
+      "detail": "user_id present on all expected tables"
+    },
+    {
+      "id": "Database Testing-005",
+      "section": "Schema & Table Existence",
+      "name": "Persona scholar_profiles link to users.id",
+      "status": "PASS",
+      "detail": "profiles=['usr_admin', 'usr_programmer', 'usr_researcher', 'usr_reviewer', 'usr_student']; orphaned=['usr_admin'] (usr_admin expected: legacy content-scope owner without a users row)"
+    },
+    {
+      "id": "Database Testing-006",
+      "section": "New Account -> Everything Starts Fresh (DB rows)",
+      "name": "New account 'file_system' starts with 0 rows",
+      "status": "PASS",
+      "detail": "0 rows"
+    },
+    {
+      "id": "Database Testing-007",
+      "section": "New Account -> Everything Starts Fresh (DB rows)",
+      "name": "New account 'global_vault_notes' starts with 0 rows",
+      "status": "PASS",
+      "detail": "0 rows"
+    },
+    {
+      "id": "Database Testing-008",
+      "section": "New Account -> Everything Starts Fresh (DB rows)",
+      "name": "New account 'insightlens_workspaces' starts with 0 rows",
+      "status": "PASS",
+      "detail": "0 rows"
+    },
+    {
+      "id": "Database Testing-009",
+      "section": "New Account -> Everything Starts Fresh (DB rows)",
+      "name": "New account 'domain_workspaces' starts with 0 rows",
+      "status": "PASS",
+      "detail": "0 rows"
+    },
+    {
+      "id": "Database Testing-010",
+      "section": "New Account -> Everything Starts Fresh (DB rows)",
+      "name": "New account 'math_evaluator_sessions' starts with 0 rows",
+      "status": "PASS",
+      "detail": "0 rows"
+    },
+    {
+      "id": "Database Testing-011",
+      "section": "New Account -> Everything Starts Fresh (DB rows)",
+      "name": "New account 'audit_ledger' starts with 0 rows",
+      "status": "PASS",
+      "detail": "0 rows"
+    },
+    {
+      "id": "Database Testing-012",
+      "section": "New Account -> Everything Starts Fresh (DB rows)",
+      "name": "New account 'student_flashcards' starts with 0 rows",
+      "status": "PASS",
+      "detail": "0 rows"
+    },
+    {
+      "id": "Database Testing-013",
+      "section": "New Account -> Everything Starts Fresh (DB rows)",
+      "name": "New account 'code_implementations' starts with 0 rows",
+      "status": "PASS",
+      "detail": "0 rows"
+    },
+    {
+      "id": "Database Testing-014",
+      "section": "New Account -> Everything Starts Fresh (DB rows)",
+      "name": "New account 'latex_projects' starts with 0 rows",
+      "status": "PASS",
+      "detail": "0 rows"
+    },
+    {
+      "id": "Database Testing-015",
+      "section": "New Account -> Everything Starts Fresh (DB rows)",
+      "name": "All user-scoped collections empty for a brand-new account",
+      "status": "PASS",
+      "detail": "0 rows everywhere except shared admin/global content"
+    },
+    {
+      "id": "Database Testing-016",
+      "section": "New Account -> Everything Starts Fresh (DB rows)",
+      "name": "Register created the users row",
+      "status": "PASS",
+      "detail": "1 row(s)"
+    },
+    {
+      "id": "Database Testing-017",
+      "section": "New Account -> Everything Starts Fresh (DB rows)",
+      "name": "Register created the scholar_profiles row",
+      "status": "PASS",
+      "detail": "1 row(s)"
+    },
+    {
+      "id": "Database Testing-018",
+      "section": "Persistence Round-Trip (API -> DB -> API)",
+      "name": "Created a vault note via API",
+      "status": "PASS",
+      "detail": "note id=89"
+    },
+    {
+      "id": "Database Testing-019",
+      "section": "Persistence Round-Trip (API -> DB -> API)",
+      "name": "Vault note row persisted in DB with correct user_id",
+      "status": "PASS",
+      "detail": "DB rows=1"
+    },
+    {
+      "id": "Database Testing-020",
+      "section": "Persistence Round-Trip (API -> DB -> API)",
+      "name": "Vault note re-read from API",
+      "status": "PASS",
+      "detail": "listed=True"
+    },
+    {
+      "id": "Database Testing-021",
+      "section": "Persistence Round-Trip (API -> DB -> API)",
+      "name": "Created a LaTeX project via API",
+      "status": "PASS",
+      "detail": "pid=proj_1790199088778"
+    },
+    {
+      "id": "Database Testing-022",
+      "section": "Persistence Round-Trip (API -> DB -> API)",
+      "name": "LaTeX project row persisted in DB with correct user_id",
+      "status": "PASS",
+      "detail": "DB rows=1"
+    },
+    {
+      "id": "Database Testing-023",
+      "section": "Persistence Round-Trip (API -> DB -> API)",
+      "name": "Project seeded main.tex + references.bib in DB",
+      "status": "PASS",
+      "detail": "2 files"
+    },
+    {
+      "id": "Database Testing-024",
+      "section": "Persistence Round-Trip (API -> DB -> API)",
+      "name": "Project seeded initial commit in latex_versions",
+      "status": "PASS",
+      "detail": "1 versions"
+    },
+    {
+      "id": "Database Testing-025",
+      "section": "Persistence Round-Trip (API -> DB -> API)",
+      "name": "Theme saved into scholar_profiles.theme",
+      "status": "PASS",
+      "detail": "db theme=topography-dark"
+    },
+    {
+      "id": "Database Testing-026",
+      "section": "Persistence Round-Trip (API -> DB -> API)",
+      "name": "Bio saved into scholar_profiles.bio",
+      "status": "PASS",
+      "detail": "db bio=DBTEST bio value"
+    },
+    {
+      "id": "Database Testing-027",
+      "section": "Old Accounts Retain Their Data in the Database",
+      "name": "Old account 'usr_admin' retains shared admin vault files (30 rows)",
+      "status": "PASS",
+      "detail": "30 rows (min 25)"
+    },
+    {
+      "id": "Database Testing-028",
+      "section": "Old Accounts Retain Their Data in the Database",
+      "name": "Old account 'usr_admin' retains shared admin vault notes (2 rows)",
+      "status": "PASS",
+      "detail": "2 rows (min 2)"
+    },
+    {
+      "id": "Database Testing-029",
+      "section": "Old Accounts Retain Their Data in the Database",
+      "name": "Old account 'usr_admin' retains shared admin latex projects (2 rows)",
+      "status": "PASS",
+      "detail": "2 rows (min 1)"
+    },
+    {
+      "id": "Database Testing-030",
+      "section": "Old Accounts Retain Their Data in the Database",
+      "name": "Old account 'usr_admin' retains admin math sessions (5 rows)",
+      "status": "PASS",
+      "detail": "5 rows (min 3)"
+    },
+    {
+      "id": "Database Testing-031",
+      "section": "Old Accounts Retain Their Data in the Database",
+      "name": "Old account 'usr_admin' retains admin scholar audits (12 rows)",
+      "status": "PASS",
+      "detail": "12 rows (min 8)"
+    },
+    {
+      "id": "Database Testing-032",
+      "section": "Old Accounts Retain Their Data in the Database",
+      "name": "Old account 'usr_admin' retains admin flashcards (16 rows)",
+      "status": "PASS",
+      "detail": "16 rows (min 10)"
+    },
+    {
+      "id": "Database Testing-033",
+      "section": "Old Accounts Retain Their Data in the Database",
+      "name": "Old account 'usr_researcher' retains researcher vault files (5 rows)",
+      "status": "PASS",
+      "detail": "5 rows (min 3)"
+    },
+    {
+      "id": "Database Testing-034",
+      "section": "Old Accounts Retain Their Data in the Database",
+      "name": "Old account 'usr_researcher' retains researcher insight lens workspaces (1 rows)",
+      "status": "PASS",
+      "detail": "1 rows (min 1)"
+    },
+    {
+      "id": "Database Testing-035",
+      "section": "Old Accounts Retain Their Data in the Database",
+      "name": "Old account 'usr_researcher' retains researcher math sessions (2 rows)",
+      "status": "PASS",
+      "detail": "2 rows (min 1)"
+    },
+    {
+      "id": "Database Testing-036",
+      "section": "Old Accounts Retain Their Data in the Database",
+      "name": "Old account 'usr_researcher' retains researcher scholar audits (6 rows)",
+      "status": "PASS",
+      "detail": "6 rows (min 4)"
+    },
+    {
+      "id": "Database Testing-037",
+      "section": "Old Accounts Retain Their Data in the Database",
+      "name": "Old account 'usr_researcher' retains researcher flashcards (8 rows)",
+      "status": "PASS",
+      "detail": "8 rows (min 5)"
+    },
+    {
+      "id": "Database Testing-038",
+      "section": "Old Accounts Retain Their Data in the Database",
+      "name": "Old account 'usr_student' retains student vault files (2 rows)",
+      "status": "PASS",
+      "detail": "2 rows (min 1)"
+    },
+    {
+      "id": "Database Testing-039",
+      "section": "Old Accounts Retain Their Data in the Database",
+      "name": "Old account 'usr_student' retains student vault notes (2 rows)",
+      "status": "PASS",
+      "detail": "2 rows (min 1)"
+    },
+    {
+      "id": "Database Testing-040",
+      "section": "Old Accounts Retain Their Data in the Database",
+      "name": "Old account 'usr_student' retains student flashcards (12 rows)",
+      "status": "PASS",
+      "detail": "12 rows (min 8)"
+    },
+    {
+      "id": "Database Testing-041",
+      "section": "Old Accounts Retain Their Data in the Database",
+      "name": "Old account 'usr_student' retains student domain matrices (2 rows)",
+      "status": "PASS",
+      "detail": "2 rows (min 1)"
+    },
+    {
+      "id": "Database Testing-042",
+      "section": "Old Accounts Retain Their Data in the Database",
+      "name": "Old account 'usr_reviewer' retains reviewer vault files (1 rows)",
+      "status": "PASS",
+      "detail": "1 rows (min 1)"
+    },
+    {
+      "id": "Database Testing-043",
+      "section": "Old Accounts Retain Their Data in the Database",
+      "name": "Old account 'usr_admin' has a persisted theme in scholar_profiles",
+      "status": "PASS",
+      "detail": "theme=solar-flare"
+    },
+    {
+      "id": "Database Testing-044",
+      "section": "Old Accounts Retain Their Data in the Database",
+      "name": "Old account 'usr_researcher' has a persisted theme in scholar_profiles",
+      "status": "PASS",
+      "detail": "theme=obsidian-core"
+    },
+    {
+      "id": "Database Testing-045",
+      "section": "Data Isolation: other users' private data is not visible",
+      "name": "Notes: user B cannot see user A's private note",
+      "status": "PASS",
+      "detail": "A's note id=90, B sees 14 notes (shared admin/global included)"
+    },
+    {
+      "id": "Database Testing-046",
+      "section": "Data Isolation: other users' private data is not visible",
+      "name": "LaTeX: user B cannot see user A's private project",
+      "status": "PASS",
+      "detail": "A's project id=proj_1790199092194; B sees 2 projects (incl. shared admin templates)"
+    }
+  ]
+}

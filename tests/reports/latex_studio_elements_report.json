@@ -1,0 +1,87 @@
+{
+  "suite": "LaTeX Studio Comprehensive Elements Verification",
+  "generated": "2026-09-25 03:06:59",
+  "passed": 11,
+  "failed": 0,
+  "warned": 0,
+  "total": 11,
+  "cases": [
+    {
+      "id": "LaTeX Studio Comprehensive Elements Verification-001",
+      "section": "General",
+      "name": "Authentication",
+      "status": "PASS",
+      "detail": "Successfully logged in as Academic Researcher"
+    },
+    {
+      "id": "LaTeX Studio Comprehensive Elements Verification-002",
+      "section": "General",
+      "name": "LaTeX Studio Navigation",
+      "status": "PASS",
+      "detail": "Loaded LaTeX Studio interface"
+    },
+    {
+      "id": "LaTeX Studio Comprehensive Elements Verification-003",
+      "section": "General",
+      "name": "Fixed Header & Title Reel",
+      "status": "PASS",
+      "detail": "Header visible: True, Recompile button pinned, Title reel ticker found: True"
+    },
+    {
+      "id": "LaTeX Studio Comprehensive Elements Verification-004",
+      "section": "General",
+      "name": "Viewport Zoom & Hand Pan Tool",
+      "status": "PASS",
+      "detail": "Zoom in/out/fit worked (Fit: 100%), Hand tool toggle and panning active: True"
+    },
+    {
+      "id": "LaTeX Studio Comprehensive Elements Verification-005",
+      "section": "General",
+      "name": "Empty File Creation & Buffer Isolation",
+      "status": "PASS",
+      "detail": ".txt empty: True, .bib empty: True, .sty empty: True, buffer isolation: True"
+    },
+    {
+      "id": "LaTeX Studio Comprehensive Elements Verification-006",
+      "section": "General",
+      "name": "File Renaming Workflow",
+      "status": "PASS",
+      "detail": "Right-click context menu Rename successfully updated file name across tree and open tabs"
+    },
+    {
+      "id": "LaTeX Studio Comprehensive Elements Verification-007",
+      "section": "General",
+      "name": "Auto-completing \\ Codes",
+      "status": "PASS",
+      "detail": "Popup rendered: True, Snippet inserted via selection: True"
+    },
+    {
+      "id": "LaTeX Studio Comprehensive Elements Verification-008",
+      "section": "General",
+      "name": "Find and Find & Replace",
+      "status": "PASS",
+      "detail": "Find matched results (1/1), Replace button processed text correctly"
+    },
+    {
+      "id": "LaTeX Studio Comprehensive Elements Verification-009",
+      "section": "General",
+      "name": "Visual Editor Quick Elements & Columns",
+      "status": "PASS",
+      "detail": "Action points available: True, Subfigures inserted: True, Tables inserted: True, Lists inserted: True"
+    },
+    {
+      "id": "LaTeX Studio Comprehensive Elements Verification-010",
+      "section": "General",
+      "name": "PDF Page Sheet View & KaTeX Math",
+      "status": "PASS",
+      "detail": "Page sheet rendered: True, KaTeX elements detected: 0"
+    },
+    {
+      "id": "LaTeX Studio Comprehensive Elements Verification-011",
+      "section": "General",
+      "name": "LaTeX Manual & Modal Dismissal",
+      "status": "PASS",
+      "detail": "Comprehensive manual content verified: True, Closed cleanly: True"
+    }
+  ]
+}
