@@ -136,3 +136,56 @@ cargo run &
 <div align="center">
   <i>Built with ❤️ for the scientific community.</i>
 </div>
+
+
+### 5. Research Community Discussion Board
+* **Publish Discussions:** Share research topics, hypotheses, questions, or updates with custom titles, rich content, and comma-separated tags.
+* **Review Status Badges:** Categorize posts dynamically using status tags:
+  * `Open Discussion`
+  * `💡 Hypothesis`
+  * `👀 Seeking Review`
+  * `✅ Validated Concept`
+* **Engagement & Interactions:**
+  * **Upvotes & Downvotes:** Upvote or remove upvotes on peer threads with persistent tracking.
+  * **Saved Research (Bookmarks):** Bookmark important discussions to filter and review later in the "Saved Research" tab.
+  * **Tag Filtering:** Filter posts dynamically by clicking on specific hashtag badges (e.g., `#PyTorch`, `#Quantum`).
+  * **Sorting:** Sort threads easily by **🕒 Recent** or **🔥 Most Upvoted**.
+
+### 6. Global Live Research Lounge (Chatbox)
+* **Real-Time Feed:** Broadcast messages and updates instantly to peers across the platform, synchronized via backend polling.
+* **File Attachments & Preview:** Attach any file type directly to chat messages. Uploaded files are converted into secure data URLs, allowing peers to click and instantly download or preview files right from the browser.
+* **Online Presence Heartbeat:** Automatic background pings track and update user activity status.
+
+### 7. Peer Profile Interaction
+* Click on any author's name within discussions to view their academic profile modal and initiate direct lounge communications.
+
+---
+
+## 🛠️ Architecture & Tech Stack
+
+* **Frontend:** React.js, Tailwind CSS, Lucide Icons (`community.jsx`)
+* **Backend:** FastAPI, Python (`main.py`)
+* **Database:** Supabase PostgreSQL Pool (`asyncpg`)
+* **Database Tables:**
+  * `community_discussions`: Stores post titles, authors, content, tags, review statuses, and upvote counts.
+  * `global_chat_messages`: Stores live chat broadcasts, sender info, timestamps, file names, and base64 file URLs.
+  * `user_presence`: Manages user heartbeat tracking for online/offline status.
+
+---
+
+## 🔌 API Endpoints Reference
+
+### Community Discussions
+* `GET /api/community/` - Fetch all community discussion threads.
+* `POST /api/community/` - Create a new discussion post.
+* `POST /api/community/{post_id}/upvote` - Increment upvotes for a thread.
+* `POST /api/community/{post_id}/downvote` - Decrement upvotes for a thread.
+* `DELETE /api/community/{post_id}` - Delete a specific discussion thread.
+
+### Global Lounge Chat
+* `GET /api/chat/messages` - Retrieve the latest 50 global chat broadcast messages.
+* `POST /api/chat/messages` - Post a new message or file attachment to the global lounge.
+
+### User Presence
+* `POST /api/presence/{username}` - Send an online heartbeat ping.
+* `GET /api/presence/{username}` - Check if a specific user is online or offline.
